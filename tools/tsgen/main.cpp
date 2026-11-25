@@ -3,12 +3,15 @@
 #include <iostream>
 #include <string>
 
+#include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../../examples/demo/app_controller.hpp"
 
 int main(int argc, char** argv) {
-    const std::string dts = boson::ipc::TsGenerator::generate<boson::demo::AppController>();
+    const std::string dts = boson::ipc::TsGenerator::generate<
+        boson::ipc::SystemController,
+        boson::demo::AppController>();
 
     if (argc > 1) {
         const std::filesystem::path out_path{argv[1]};

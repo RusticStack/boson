@@ -2,13 +2,14 @@
 
 **A zero-overhead C++26 WebView2 desktop framework for Windows 10/11.**
 
-Boson pairs bare-metal Win32/COM (`ICoreWebView2`) with compile-time IPC reflection, NVIDIA `stdexec` (P2300 Senders/Receivers) background execution, in-memory custom protocol asset serving (`boson://app/*`), and automated TypeScript binding generation—shipping a self-contained **346.5 KB** LTO-stripped `.exe` with zero external `WebView2Loader.dll` dependency.
+Boson pairs bare-metal Win32/COM (`ICoreWebView2`) with compile-time IPC reflection, NVIDIA `stdexec` (P2300 Senders/Receivers) background execution, Windows Fluent Design backdrops, in-memory custom protocol asset serving (`boson://app/*`), and automated TypeScript binding generation—shipping a self-contained **~455 KB** LTO-stripped `.exe` with zero external `WebView2Loader.dll` dependency.
 
 ---
 
 ## Key Features
 
-- **Bare-Metal Win32 & WebView2**: Direct `Microsoft::WRL::ComPtr` integration with Per-Monitor V2 DPI awareness, `DWMWA_USE_IMMERSIVE_DARK_MODE`, optional borderless DWM frames (`WM_NCCALCSIZE` / `WM_NCHITTEST`), and statically linked `WebView2LoaderStatic.lib`.
+- **Bare-Metal Win32 & Fluent Design**: Direct `Microsoft::WRL::ComPtr` integration with Per-Monitor V2 DPI awareness, `DWMWA_USE_IMMERSIVE_DARK_MODE`, **headless custom titlebar** (`headless_titlebar`), rounded corners, and Windows 11/10 backdrops (**Mica**, **Mica Alt**, **Acrylic**, **Transparent**, **Translucent**) paired with transparent WebView2 compositing.
+- **Native OS Integration (`Boson.*`)**: Built-in `SystemController` exposing window drag/minimize/maximize/close/fullscreen/always-on-top, live backdrop & opacity switching, native Windows notifications (`Shell_NotifyIconW` + `SystemTray`), and COM file/folder dialogs (`IFileOpenDialog` / `IFileSaveDialog`).
 - **Non-Blocking Async IPC (`stdexec`)**: Incoming `WebMessageReceived` JSON requests are dispatched onto a lock-free `exec::static_thread_pool` via `stdexec::schedule | stdexec::then` inside `exec::async_scope`, then marshaled back to the Win32 UI thread via `WM_APP + 1`. C++ exceptions are caught at the ABI boundary and returned as structured JSON error responses.
 - **Compile-Time Reflection Router**: Supports C++26 P2996 static reflection (`<meta>`, `^^T`, `[:member:]`) when available, with a seamless zero-macro [Glaze](https://github.com/stephenberry/glaze) (`v9.1.0`) reflection path that compiles cleanly on MSVC 19.52 today.
 - **Zero-Disk-I/O Asset Serving**: Registers `boson://app/*` as a secure custom scheme via `ICoreWebView2EnvironmentOptions4` and serves embedded frontend assets directly from memory using `SHCreateMemStream` + `CreateWebResourceResponse`.
@@ -75,11 +76,12 @@ cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Buil
 ### 3. Run the Demo & Tests
 
 ```powershell
-# Run the self-contained Release executable (~346.5 KB)
+# Run the self-contained Release executable (~455 KB, headless Mica by default)
 .\build\release\boson_demo.exe
 
 # Optional flags:
-.\build\release\boson_demo.exe --borderless
+.\build\release\boson_demo.exe --native-frame
+.\build\release\boson_demo.exe --backdrop=acrylic
 .\build\release\boson_demo.exe --dev http://localhost:5173
 
 # Run unit tests

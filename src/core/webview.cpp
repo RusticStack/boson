@@ -141,6 +141,7 @@ void WebView::on_controller_created(HRESULT result, ICoreWebView2Controller* con
     GetClientRect(m_hwnd, &bounds);
     BOSON_HR_CHECK(m_controller->put_Bounds(bounds));
     BOSON_HR_CHECK(m_controller->put_IsVisible(TRUE));
+    set_transparent_background(m_config.transparent_background);
 
     ComPtr<ICoreWebView2Settings> settings;
     if (SUCCEEDED(m_webview->get_Settings(&settings)) && settings) {
@@ -207,6 +208,24 @@ void WebView::resize(int width, int height) noexcept {
     }
     const RECT bounds{0, 0, width, height};
     BOSON_HR_CHECK(m_controller->put_Bounds(bounds));
+}
+
+bool WebView::set_transparent_background(bool enabled) noexcept {
+    m_config.transparent_background = enabled;
+    if (m_controller == nullptr) {
+        return true;
+    }
+    ComPtr<ICoreWebView2Controller2> controller2;
+    if (!BOSON_HR_CHECK(m_controller.As(&controller2)) || !controller2) {
+        return false;
+    }
+    const COREWEBVIEW2_COLOR bg{
+        static_cast<BYTE>(enabled ? 0 : 255),
+        0,
+        0,
+        0,
+    };
+    return BOSON_HR_CHECK(controller2->put_DefaultBackgroundColor(bg));
 }
 
 bool WebView::post_web_message_as_json(std::string_view json) const {

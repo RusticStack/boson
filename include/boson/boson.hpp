@@ -14,6 +14,10 @@
 #include <boson/ipc/export.hpp>
 #include <boson/ipc/protocol_types.hpp>
 #include <boson/ipc/router.hpp>
+#include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
+
+#include <boson/native/dialog.hpp>
+#include <boson/native/notification.hpp>
 
 #include <boson/assets/asset_registry.hpp>

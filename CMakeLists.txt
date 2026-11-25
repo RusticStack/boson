@@ -44,6 +44,8 @@ add_library(boson_core STATIC
     src/core/protocol.cpp
     src/exec/task_runner.cpp
     src/ipc/bridge.cpp
+    src/native/notification.cpp
+    src/native/dialog.cpp
 )
 
 target_include_directories(boson_core

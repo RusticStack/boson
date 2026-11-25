@@ -133,7 +133,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
     win_cfg.width = 1280;
     win_cfg.height = 800;
     win_cfg.dark_mode = true;
-    win_cfg.borderless = false; // set true for custom titlebar apps
+    win_cfg.headless_titlebar = true; // custom HTML/TS titlebar with native snap & resize
+    win_cfg.backdrop = boson::core::BackdropType::Mica; // Mica, MicaAlt, Acrylic, Transparent, Translucent, None
 
     boson::core::Window window(std::move(win_cfg));
     if (!window.create(instance, show_cmd)) {
@@ -146,14 +147,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     boson::exec::TaskRunner runner(scheduler, marshal);
 
-    GreeterController greeter;
-    boson::ipc::Router<GreeterController> router(greeter);
-
     boson::core::WebViewConfig wv_cfg;
     wv_cfg.initial_url = "boson://app/index.html";
+    wv_cfg.transparent_background = window.is_transparent_backdrop();
     // wv_cfg.dev_url = "http://localhost:5173"; // enable for Vite HMR
 
     boson::core::WebView webview(std::move(wv_cfg));
+
+    boson::ipc::SystemController system(window, webview, marshal);
+    GreeterController greeter;
+    boson::ipc::Router<boson::ipc::SystemController, GreeterController> router(system, greeter);
+
     boson::ipc::Bridge bridge(webview, runner, marshal, router);
 
     window.set_resize_callback([&webview](int w, int h) { webview.resize(w, h); });
@@ -217,7 +221,30 @@ try {
 
 ---
 
-## 7. Production Release Builds
+## 7. Fluent Backdrops, Headless Titlebar, Notifications & Dialogs
+
+When `boson::ipc::SystemController` is registered in `Router`, your frontend can call `Boson.*` directly:
+
+- **Headless Titlebar**:
+  - `Boson.start_drag()` (call on `mousedown` of your custom titlebar drag element)
+  - `Boson.minimize()`, `Boson.maximize_or_restore()`, `Boson.close()`, `Boson.is_maximized()`
+- **Fluent Backdrops & Window State**:
+  - `Boson.set_backdrop({ backdrop: 'mica' | 'mica_alt' | 'acrylic' | 'transparent' | 'translucent' | 'none' })`
+  - `Boson.set_opacity({ opacity: 0.85 })`
+  - `Boson.set_dark_mode({ enabled: true })`
+  - `Boson.set_always_on_top({ enabled: true })`
+  - `Boson.set_fullscreen({ enabled: true })`
+  - `Boson.set_title({ title: 'New Title' })`
+- **Native Notifications & File Dialogs**:
+  - `Boson.notify({ title: 'Done', body: 'Build succeeded', level: 'info', silent: false })`
+  - `Boson.open_file_dialog({ title: 'Open', allow_multiple: true, pick_folder: false })`
+  - `Boson.save_file_dialog({ title: 'Save', default_name: 'out.json' })`
+
+Ensure your CSS uses `html, body { background: transparent; }` when using `mica`, `mica_alt`, `acrylic`, or `transparent` backdrops so the DWM material shows through WebView2.
+
+---
+
+## 8. Production Release Builds
 
 ```powershell
 cd frontend && bun run build && cd ..

@@ -1,25 +1,17 @@
 import './style.css';
 import { boson, BosonIpcError } from './boson';
-
-interface SystemInfoResult {
-  os: string;
-  architecture: string;
-  cpu_cores: number;
-  webview2_runtime: string;
-  build_mode: string;
-}
-
-interface ComputePrimesResult {
-  limit: number;
-  count: number;
-  largest_prime: number;
-  elapsed_ms: number;
-}
-
-interface PingResult {
-  pong: boolean;
-  timestamp_us: number;
-}
+import type {
+  BackdropStatusResponse,
+  BoolResponse,
+  ComputePrimesResult,
+  FileDialogResponse,
+  NotifyRequest,
+  OpenDialogRequest,
+  OpacityRequest,
+  PingResult,
+  SystemInfo,
+  ToggleRequest,
+} from './generated/boson-bindings';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) {
@@ -27,15 +19,30 @@ if (!app) {
 }
 
 const isWebView = boson.isAvailable();
+if (!isWebView) {
+  document.body.classList.add('solid-fallback');
+}
 
 app.innerHTML = `
+  <nav class="titlebar">
+    <div id="titlebar-drag" class="titlebar-drag" title="Drag to move, double-click to maximize">
+      <span class="titlebar-dot"></span>
+      <span class="titlebar-title">Boson &mdash; C++26 Fluent WebView2</span>
+    </div>
+    <div class="titlebar-controls">
+      <button id="win-min" class="win-btn" title="Minimize" aria-label="Minimize">&#x2013;</button>
+      <button id="win-max" class="win-btn" title="Maximize" aria-label="Maximize">&#x25A1;</button>
+      <button id="win-close" class="win-btn close" title="Close" aria-label="Close">&#x2715;</button>
+    </div>
+  </nav>
+
   <main class="shell">
     <header class="header">
       <div class="brand">
         <div class="brand-badge">B</div>
         <div>
           <h1>Boson C++26 WebView2</h1>
-          <p>Zero-overhead Win32/COM &bull; Glaze Reflection &bull; stdexec Async IPC</p>
+          <p>Fluent Mica/Acrylic &bull; Headless Titlebar &bull; Native Notifications &bull; stdexec IPC</p>
         </div>
       </div>
 
@@ -54,6 +61,43 @@ app.innerHTML = `
     </header>
 
     <section class="grid">
+      <article class="card full-width">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Windows Fluent Design &amp; Native OS</div>
+            <div class="card-sub">DWM backdrops, window translucency, native notifications, and COM file dialogs</div>
+          </div>
+          <span class="tag">Boson.*</span>
+        </div>
+
+        <div class="fluent-controls">
+          <div class="pill-group" id="backdrop-pills">
+            <button class="pill active" data-backdrop="mica">Mica</button>
+            <button class="pill" data-backdrop="mica_alt">Mica Alt</button>
+            <button class="pill" data-backdrop="acrylic">Acrylic</button>
+            <button class="pill" data-backdrop="transparent">Transparent</button>
+            <button class="pill" data-backdrop="translucent">Translucent</button>
+            <button class="pill" data-backdrop="none">Opaque</button>
+          </div>
+
+          <label class="slider-wrap">
+            <span>Opacity</span>
+            <input id="opacity-slider" type="range" min="30" max="100" value="100" />
+            <span id="opacity-label">100%</span>
+          </label>
+        </div>
+
+        <div class="fluent-controls">
+          <button id="btn-notify" class="btn">Send Native Notification</button>
+          <button id="btn-open-file" class="btn">Open File Dialog</button>
+          <button id="btn-open-folder" class="btn">Pick Folder</button>
+          <button id="btn-topmost" class="pill">Always on Top: Off</button>
+          <button id="btn-theme" class="pill active">Dark Mode: On</button>
+        </div>
+
+        <pre id="out-native" class="output">Active backdrop: Mica (transparent WebView2 surface).</pre>
+      </article>
+
       <article class="card">
         <div class="card-head">
           <div>
@@ -113,6 +157,26 @@ app.innerHTML = `
   </main>
 `;
 
+// Headless Titlebar Controls
+document.querySelector('#titlebar-drag')?.addEventListener('mousedown', (e) => {
+  const ev = e as MouseEvent;
+  if (ev.button === 0 && ev.detail === 1) {
+    void boson.call('Boson.start_drag').catch(() => {});
+  }
+});
+document.querySelector('#titlebar-drag')?.addEventListener('dblclick', () => {
+  void boson.call<BoolResponse>('Boson.maximize_or_restore').catch(() => {});
+});
+document.querySelector('#win-min')?.addEventListener('click', () => {
+  void boson.call('Boson.minimize').catch(() => {});
+});
+document.querySelector('#win-max')?.addEventListener('click', () => {
+  void boson.call<BoolResponse>('Boson.maximize_or_restore').catch(() => {});
+});
+document.querySelector('#win-close')?.addEventListener('click', () => {
+  void boson.call('Boson.close').catch(() => {});
+});
+
 // Live 60fps RAF animation ring + FPS counter
 const rafArc = document.querySelector<SVGCircleElement>('#raf-arc')!;
 const fpsValue = document.querySelector<HTMLSpanElement>('#fps-value')!;
@@ -150,13 +214,120 @@ function setOutput(el: HTMLPreElement, text: string, state: 'ok' | 'err' | 'neut
   }
 }
 
+// Fluent & Native OS Controls
+const outNative = document.querySelector<HTMLPreElement>('#out-native')!;
+const backdropPills = document.querySelectorAll<HTMLButtonElement>('#backdrop-pills .pill');
+backdropPills.forEach((pill) => {
+  pill.addEventListener('click', async () => {
+    const backdrop = pill.dataset.backdrop ?? 'mica';
+    backdropPills.forEach((p) => p.classList.remove('active'));
+    pill.classList.add('active');
+    document.body.classList.toggle('solid-fallback', backdrop === 'none' || !isWebView);
+    try {
+      const res = await boson.call<BackdropStatusResponse, { backdrop: string }>('Boson.set_backdrop', {
+        backdrop,
+      });
+      setOutput(
+        outNative,
+        `Backdrop set to "${res.backdrop}" (transparent WebView2: ${res.transparent_webview})`,
+        'ok'
+      );
+    } catch (err) {
+      setOutput(outNative, formatError(err), 'err');
+    }
+  });
+});
+
+const opacitySlider = document.querySelector<HTMLInputElement>('#opacity-slider')!;
+const opacityLabel = document.querySelector<HTMLSpanElement>('#opacity-label')!;
+opacitySlider.addEventListener('input', () => {
+  const pct = Number(opacitySlider.value);
+  opacityLabel.textContent = `${pct}%`;
+  void boson.call<void, OpacityRequest>('Boson.set_opacity', { opacity: pct / 100 }).catch(() => {});
+});
+
+let isTopmost = false;
+const btnTopmost = document.querySelector<HTMLButtonElement>('#btn-topmost')!;
+btnTopmost.addEventListener('click', async () => {
+  isTopmost = !isTopmost;
+  btnTopmost.classList.toggle('active', isTopmost);
+  btnTopmost.textContent = `Always on Top: ${isTopmost ? 'On' : 'Off'}`;
+  try {
+    await boson.call<void, ToggleRequest>('Boson.set_always_on_top', { enabled: isTopmost });
+  } catch (err) {
+    setOutput(outNative, formatError(err), 'err');
+  }
+});
+
+let isDarkMode = true;
+const btnTheme = document.querySelector<HTMLButtonElement>('#btn-theme')!;
+btnTheme.addEventListener('click', async () => {
+  isDarkMode = !isDarkMode;
+  btnTheme.classList.toggle('active', isDarkMode);
+  btnTheme.textContent = `Dark Mode: ${isDarkMode ? 'On' : 'Off'}`;
+  try {
+    await boson.call<void, ToggleRequest>('Boson.set_dark_mode', { enabled: isDarkMode });
+  } catch (err) {
+    setOutput(outNative, formatError(err), 'err');
+  }
+});
+
+document.querySelector('#btn-notify')?.addEventListener('click', async () => {
+  try {
+    const res = await boson.call<BoolResponse, NotifyRequest>('Boson.notify', {
+      title: 'Boson Desktop',
+      body: 'Native Windows notification dispatched from C++26!',
+      level: 'info',
+      silent: false,
+    });
+    setOutput(outNative, `Notification sent (delivered=${res.value})`, res.value ? 'ok' : 'err');
+  } catch (err) {
+    setOutput(outNative, formatError(err), 'err');
+  }
+});
+
+document.querySelector('#btn-open-file')?.addEventListener('click', async () => {
+  try {
+    const res = await boson.call<FileDialogResponse, OpenDialogRequest>('Boson.open_file_dialog', {
+      title: 'Select Files',
+      allow_multiple: true,
+      pick_folder: false,
+    });
+    setOutput(
+      outNative,
+      res.cancelled ? 'File dialog cancelled.' : `Selected:\n${res.paths.join('\n')}`,
+      'ok'
+    );
+  } catch (err) {
+    setOutput(outNative, formatError(err), 'err');
+  }
+});
+
+document.querySelector('#btn-open-folder')?.addEventListener('click', async () => {
+  try {
+    const res = await boson.call<FileDialogResponse, OpenDialogRequest>('Boson.open_file_dialog', {
+      title: 'Select Folder',
+      allow_multiple: false,
+      pick_folder: true,
+    });
+    setOutput(
+      outNative,
+      res.cancelled ? 'Folder dialog cancelled.' : `Selected folder:\n${res.paths.join('\n')}`,
+      'ok'
+    );
+  } catch (err) {
+    setOutput(outNative, formatError(err), 'err');
+  }
+});
+
+// AppController Demos
 const btnSysInfo = document.querySelector<HTMLButtonElement>('#btn-sysinfo')!;
 const outSysInfo = document.querySelector<HTMLPreElement>('#out-sysinfo')!;
 btnSysInfo.addEventListener('click', async () => {
   btnSysInfo.disabled = true;
   const t0 = performance.now();
   try {
-    const info = await boson.call<SystemInfoResult>('App.get_system_info');
+    const info = await boson.call<SystemInfo>('App.get_system_info');
     const ms = (performance.now() - t0).toFixed(2);
     setOutput(
       outSysInfo,

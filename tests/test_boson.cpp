@@ -21,6 +21,7 @@
 #include <boson/exec/ui_marshal.hpp>
 #include <boson/ipc/protocol_types.hpp>
 #include <boson/ipc/router.hpp>
+#include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../examples/demo/app_controller.hpp"
@@ -248,18 +249,73 @@ void test_assets_and_protocol() {
 }
 
 void test_ts_generator() {
-    const std::string dts = boson::ipc::TsGenerator::generate<boson::demo::AppController>();
+    const std::string dts = boson::ipc::TsGenerator::generate<
+        boson::ipc::SystemController,
+        boson::demo::AppController>();
 
     BOSON_CHECK(dts.find("export interface PingResult") != std::string::npos);
     BOSON_CHECK(dts.find("export interface SystemInfo") != std::string::npos);
     BOSON_CHECK(dts.find("export interface ComputePrimesRequest") != std::string::npos);
     BOSON_CHECK(dts.find("export interface ComputePrimesResult") != std::string::npos);
+    BOSON_CHECK(dts.find("export interface BackdropRequest") != std::string::npos);
+    BOSON_CHECK(dts.find("export interface NotifyRequest") != std::string::npos);
+    BOSON_CHECK(dts.find("export interface FileDialogResponse") != std::string::npos);
     BOSON_CHECK(dts.find("export interface BosonApi") != std::string::npos);
+    BOSON_CHECK(dts.find("\"Boson.start_drag\"") != std::string::npos);
+    BOSON_CHECK(dts.find("\"Boson.set_backdrop\"") != std::string::npos);
+    BOSON_CHECK(dts.find("\"Boson.notify\"") != std::string::npos);
+    BOSON_CHECK(dts.find("\"Boson.open_file_dialog\"") != std::string::npos);
     BOSON_CHECK(dts.find("\"App.ping\"") != std::string::npos);
     BOSON_CHECK(dts.find("\"App.get_system_info\"") != std::string::npos);
     BOSON_CHECK(dts.find("\"App.compute_primes\"") != std::string::npos);
     BOSON_CHECK(dts.find("\"App.trigger_error\"") != std::string::npos);
     BOSON_CHECK(dts.find("Promise<") != std::string::npos);
+}
+
+void test_ui_marshal_tasks_and_backdrops() {
+    std::mutex mu;
+    std::condition_variable cv;
+    int wake_count = 0;
+
+    boson::exec::UiMarshal marshal([&]() {
+        std::scoped_lock lock(mu);
+        ++wake_count;
+        cv.notify_all();
+    });
+
+    std::atomic<int> sum{0};
+    std::jthread worker([&](std::stop_token) {
+        const int result = marshal.invoke_sync([&]() {
+            sum.fetch_add(21, std::memory_order_relaxed);
+            return 42;
+        });
+        BOSON_CHECK(result == 42);
+    });
+
+    {
+        std::unique_lock lock(mu);
+        const bool ok = cv.wait_for(lock, std::chrono::seconds(5), [&]() { return wake_count >= 1; });
+        BOSON_CHECK(ok);
+    }
+
+    marshal.drain_on_ui_thread();
+    worker.join();
+    BOSON_CHECK(sum.load(std::memory_order_relaxed) == 21);
+
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("mica") == boson::core::BackdropType::Mica);
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("mica_alt") == boson::core::BackdropType::MicaAlt);
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("acrylic") == boson::core::BackdropType::Acrylic);
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("transparent") == boson::core::BackdropType::Transparent);
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("translucent") == boson::core::BackdropType::Translucent);
+    BOSON_CHECK(boson::ipc::parse_backdrop_type("none") == boson::core::BackdropType::None);
+
+    bool threw = false;
+    try {
+        (void)boson::ipc::parse_backdrop_type("invalid_backdrop");
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    BOSON_CHECK(threw);
 }
 
 }  // namespace
@@ -270,6 +326,7 @@ int main() {
     test_inplace_vector();
     test_assets_and_protocol();
     test_ts_generator();
+    test_ui_marshal_tasks_and_backdrops();
 
     if (g_failures != 0) {
         std::cerr << g_failures << " check(s) failed.\n";

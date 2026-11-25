@@ -37,7 +37,8 @@ private:
 };
 
 struct LaunchOptions {
-    bool borderless = false;
+    bool headless_titlebar = true;
+    boson::core::BackdropType backdrop = boson::core::BackdropType::Mica;
     std::optional<std::string> dev_url;
 };
 
@@ -72,8 +73,12 @@ struct LaunchOptions {
 
     for (int i = 1; i < argc; ++i) {
         const std::wstring_view arg{argv_guard.get()[i]};
-        if (arg == L"--borderless") {
-            opts.borderless = true;
+        if (arg == L"--native-frame") {
+            opts.headless_titlebar = false;
+        } else if (arg == L"--borderless") {
+            opts.headless_titlebar = true;
+        } else if (arg.starts_with(L"--backdrop=")) {
+            opts.backdrop = boson::ipc::parse_backdrop_type(boson::core::wide_to_utf8(arg.substr(11)));
         } else if (arg == L"--dev") {
             if (i + 1 < argc && argv_guard.get()[i + 1][0] != L'-') {
                 opts.dev_url = boson::core::wide_to_utf8(argv_guard.get()[++i]);
@@ -103,9 +108,10 @@ int WINAPI wWinMain(
 
     boson::core::WindowConfig window_cfg;
     window_cfg.title = L"Boson — C++26 WebView2";
-    window_cfg.width = 1180;
-    window_cfg.height = 780;
-    window_cfg.borderless = opts.borderless;
+    window_cfg.width = 1220;
+    window_cfg.height = 840;
+    window_cfg.headless_titlebar = opts.headless_titlebar;
+    window_cfg.backdrop = opts.backdrop;
     window_cfg.dark_mode = true;
 
     boson::core::Window window(std::move(window_cfg));
@@ -123,14 +129,19 @@ int WINAPI wWinMain(
 
     boson::exec::TaskRunner runner(scheduler, marshal);
 
-    boson::demo::AppController app_controller;
-    boson::ipc::Router<boson::demo::AppController> router(app_controller);
-
     boson::core::WebViewConfig webview_cfg;
     webview_cfg.dev_url = opts.dev_url;
     webview_cfg.initial_url = "boson://app/index.html";
+    webview_cfg.transparent_background = window.is_transparent_backdrop();
 
     boson::core::WebView webview(std::move(webview_cfg));
+
+    boson::ipc::SystemController system_controller(window, webview, marshal);
+    boson::demo::AppController app_controller;
+    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController> router(
+        system_controller,
+        app_controller);
+
     boson::ipc::Bridge bridge(webview, runner, marshal, router);
 
     window.set_resize_callback([&webview](int width, int height) {

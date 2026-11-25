@@ -19,6 +19,7 @@ struct WebViewConfig {
     std::wstring user_data_folder;
     std::optional<std::string> dev_url;
     std::string initial_url = "boson://app/index.html";
+    bool transparent_background = false;
 };
 
 class WebView {
@@ -41,6 +42,7 @@ public:
         ReadyCallback on_ready = {});
 
     void resize(int width, int height) noexcept;
+    bool set_transparent_background(bool enabled) noexcept;
     bool post_web_message_as_json(std::string_view json) const;
     bool navigate(std::string_view url) const;
 
