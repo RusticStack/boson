@@ -82,6 +82,10 @@ bool WebView::initialize(
         }
     }
 
+    if (m_config.transparent_background) {
+        SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", L"0");
+    }
+
     const wchar_t* user_data = m_config.user_data_folder.empty()
         ? nullptr
         : m_config.user_data_folder.c_str();

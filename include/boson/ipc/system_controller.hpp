@@ -174,6 +174,10 @@ public:
     void set_opacity(OpacityRequest req) const {
         const float clamped = static_cast<float>(std::clamp(req.opacity, 0.1, 1.0));
         m_marshal.post_task([this, clamped]() {
+            if (clamped < 0.999f && m_window.backdrop() != core::BackdropType::Translucent) {
+                m_window.set_backdrop(core::BackdropType::Translucent);
+                m_webview.set_transparent_background(false);
+            }
             m_window.set_opacity(clamped);
         });
     }

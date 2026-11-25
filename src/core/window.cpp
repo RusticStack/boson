@@ -39,6 +39,26 @@ enum DwmSystemBackdrop : DWORD {
     kDwmsbtTabbedWindow = 4,    // Mica Alt
 };
 
+void set_dwm_blur_behind(HWND hwnd, bool enable) noexcept {
+    DWM_BLURBEHIND bb{};
+    bb.dwFlags = DWM_BB_ENABLE;
+    bb.fEnable = enable ? TRUE : FALSE;
+
+    HRGN empty_rgn = nullptr;
+    if (enable) {
+        empty_rgn = CreateRectRgn(0, 0, -1, -1);
+        if (empty_rgn != nullptr) {
+            bb.dwFlags |= DWM_BB_BLURREGION;
+            bb.hRgnBlur = empty_rgn;
+        }
+    }
+
+    DwmEnableBlurBehindWindow(hwnd, &bb);
+    if (empty_rgn != nullptr) {
+        DeleteObject(empty_rgn);
+    }
+}
+
 } // namespace
 
 Window::Window(WindowConfig config)
@@ -65,9 +85,7 @@ bool Window::create(HINSTANCE instance, int show_cmd) {
     wc.lpfnWndProc = &Window::wnd_proc;
     wc.hInstance = h_inst;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = is_transparent_backdrop()
-        ? nullptr
-        : static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
+    wc.hbrBackground = nullptr;
     wc.lpszClassName = kWindowClassName;
 
     if (!RegisterClassExW(&wc)) {
@@ -78,10 +96,7 @@ bool Window::create(HINSTANCE instance, int show_cmd) {
         }
     }
 
-    const DWORD style = is_headless()
-        ? (WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU)
-        : WS_OVERLAPPEDWINDOW;
-
+    const DWORD style = WS_OVERLAPPEDWINDOW;
     const DWORD ex_style = m_config.always_on_top ? WS_EX_TOPMOST : 0;
 
     m_hwnd = CreateWindowExW(
@@ -162,6 +177,9 @@ void Window::start_drag() const noexcept {
 
 bool Window::set_backdrop(BackdropType backdrop) noexcept {
     m_config.backdrop = backdrop;
+    if (backdrop != BackdropType::Translucent) {
+        m_config.opacity = 1.0f;
+    }
     if (m_hwnd == nullptr) {
         return true;
     }
@@ -196,6 +214,7 @@ bool Window::set_dark_mode(bool enabled) noexcept {
         return true;
     }
     apply_dark_mode();
+    apply_backdrop();
     return true;
 }
 
@@ -321,9 +340,23 @@ LRESULT CALLBACK Window::wnd_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_
 
 LRESULT Window::handle_message(UINT msg, WPARAM w_param, LPARAM l_param) {
     switch (msg) {
-    case WM_ERASEBKGND:
+    case WM_ERASEBKGND: {
         if (is_transparent_backdrop()) {
             return 1;
+        }
+        HDC hdc = reinterpret_cast<HDC>(w_param);
+        RECT rc{};
+        GetClientRect(m_hwnd, &rc);
+        HBRUSH brush = CreateSolidBrush(m_config.dark_mode ? RGB(32, 32, 32) : RGB(243, 243, 243));
+        FillRect(hdc, &rc, brush);
+        DeleteObject(brush);
+        return 1;
+    }
+
+    case WM_NCACTIVATE:
+        if (is_headless() && !m_is_fullscreen) {
+            // Returning TRUE prevents DWM/DefWindowProc from painting native caption chrome on focus change.
+            return TRUE;
         }
         break;
 
@@ -403,19 +436,21 @@ void Window::apply_backdrop() noexcept {
         return;
     }
 
-    // DWM system backdrops require WS_EX_LAYERED to be cleared unless explicitly Translucent.
     const LONG_PTR ex_style = GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE);
     if (m_config.backdrop == BackdropType::Translucent) {
+        set_dwm_blur_behind(m_hwnd, false);
         if ((ex_style & WS_EX_LAYERED) == 0) {
             SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED);
         }
         const float effective = m_config.opacity >= 0.999f ? 0.88f : m_config.opacity;
         const BYTE alpha = static_cast<BYTE>(std::clamp(effective, 0.1f, 1.0f) * 255.0f);
         SetLayeredWindowAttributes(m_hwnd, 0, alpha, LWA_ALPHA);
-    } else if (m_config.opacity >= 0.999f && (ex_style & WS_EX_LAYERED) != 0) {
-        SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
-    } else if (m_config.opacity < 0.999f) {
-        set_opacity(m_config.opacity);
+    } else {
+        // DWM system backdrops and blur-behind must not be combined with WS_EX_LAYERED.
+        if ((ex_style & WS_EX_LAYERED) != 0) {
+            SetWindowLongPtrW(m_hwnd, GWL_EXSTYLE, ex_style & ~WS_EX_LAYERED);
+        }
+        set_dwm_blur_behind(m_hwnd, m_config.backdrop == BackdropType::Transparent);
     }
 
     const MARGINS margins = is_transparent_backdrop()
@@ -441,8 +476,8 @@ void Window::apply_backdrop() noexcept {
         break;
     }
 
-    // Ignore E_INVALIDARG on older Windows 10 builds where DWMWA_SYSTEMBACKDROP_TYPE is unsupported.
     DwmSetWindowAttribute(m_hwnd, kDwmwaSystemBackdropType, &dwm_backdrop, sizeof(dwm_backdrop));
+    InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
 void Window::apply_borderless_frame() const noexcept {
@@ -481,11 +516,6 @@ LRESULT Window::handle_nccalcsize(WPARAM w_param, LPARAM l_param) const noexcept
 }
 
 LRESULT Window::handle_nchittest(LPARAM l_param) const noexcept {
-    const LRESULT def_hit = DefWindowProcW(m_hwnd, WM_NCHITTEST, 0, l_param);
-    if (def_hit != HTCLIENT) {
-        return def_hit;
-    }
-
     const POINT pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
     RECT rc{};
     GetWindowRect(m_hwnd, &rc);

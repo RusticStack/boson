@@ -137,6 +137,7 @@ console.log(res.pong, res.timestamp_us);
 ## Documentation
 
 - [Developer Usage Guide](docs/USAGE.md) — Integrating `boson_core`, defining controllers, wiring `Window`/`WebView`/`Bridge`, generating TypeScript bindings, HMR dev mode, and Release LTO builds.
+- [Electron & Tauri v2 Gap Analysis](docs/ELECTRON_TAURI_GAP_ANALYSIS.md) — Detailed capability matrix comparing Boson against Electron and Tauri v2, plus the roadmap to full parity.
 - [Architecture Plan](PLAN.md) — The 5-phase design blueprint for Boson.
 
 ## License

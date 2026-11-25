@@ -19,145 +19,166 @@ if (!app) {
 }
 
 const isWebView = boson.isAvailable();
+document.documentElement.setAttribute('data-theme', 'dark');
 if (!isWebView) {
   document.body.classList.add('solid-fallback');
 }
 
+const ICON_MIN = `<svg viewBox="0 0 46 32" fill="none"><path d="M18 16H28" stroke="currentColor" stroke-width="1"/></svg>`;
+const ICON_MAX = `<svg viewBox="0 0 46 32" fill="none"><path d="M18.5 11.5H27.5V20.5H18.5V11.5Z" stroke="currentColor" stroke-width="1"/></svg>`;
+const ICON_RESTORE = `<svg viewBox="0 0 46 32" fill="none"><path d="M18.5 13.5H25.5V20.5H18.5V13.5Z" stroke="currentColor" stroke-width="1"/><path d="M20.5 13.5V11.5H27.5V18.5H25.5" stroke="currentColor" stroke-width="1"/></svg>`;
+const ICON_CLOSE = `<svg viewBox="0 0 46 32" fill="none"><path d="M18 11L28 21M28 11L18 21" stroke="currentColor" stroke-width="1"/></svg>`;
+
 app.innerHTML = `
-  <nav class="titlebar">
-    <div id="titlebar-drag" class="titlebar-drag" title="Drag to move, double-click to maximize">
-      <span class="titlebar-dot"></span>
-      <span class="titlebar-title">Boson &mdash; C++26 Fluent WebView2</span>
-    </div>
-    <div class="titlebar-controls">
-      <button id="win-min" class="win-btn" title="Minimize" aria-label="Minimize">&#x2013;</button>
-      <button id="win-max" class="win-btn" title="Maximize" aria-label="Maximize">&#x25A1;</button>
-      <button id="win-close" class="win-btn close" title="Close" aria-label="Close">&#x2715;</button>
-    </div>
-  </nav>
-
-  <main class="shell">
-    <header class="header">
-      <div class="brand">
-        <div class="brand-badge">B</div>
-        <div>
-          <h1>Boson C++26 WebView2</h1>
-          <p>Fluent Mica/Acrylic &bull; Headless Titlebar &bull; Native Notifications &bull; stdexec IPC</p>
-        </div>
+  <div class="app-frame">
+    <nav class="titlebar">
+      <div id="titlebar-drag" class="titlebar-drag" title="Drag to move, double-click to maximize">
+        <span class="titlebar-dot"></span>
+        <span class="titlebar-title">Boson &mdash; C++26 Fluent WebView2</span>
       </div>
-
-      <div class="fps-widget" title="Runs on main UI thread via requestAnimationFrame">
-        <div class="ring-container">
-          <svg class="ring-svg" viewBox="0 0 44 44">
-            <circle class="ring-track" cx="22" cy="22" r="18" />
-            <circle id="raf-arc" class="ring-arc" cx="22" cy="22" r="18" />
-          </svg>
-        </div>
-        <div class="fps-meta">
-          <span id="fps-value" class="fps-value">60 FPS</span>
-          <span class="fps-label">UI Thread Lock-Free</span>
-        </div>
+      <div class="titlebar-controls">
+        <button id="win-min" class="win-btn" title="Minimize" aria-label="Minimize">${ICON_MIN}</button>
+        <button id="win-max" class="win-btn" title="Maximize" aria-label="Maximize">${ICON_MAX}</button>
+        <button id="win-close" class="win-btn close" title="Close" aria-label="Close">${ICON_CLOSE}</button>
       </div>
-    </header>
+    </nav>
 
-    <section class="grid">
-      <article class="card full-width">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Windows Fluent Design &amp; Native OS</div>
-            <div class="card-sub">DWM backdrops, window translucency, native notifications, and COM file dialogs</div>
-          </div>
-          <span class="tag">Boson.*</span>
-        </div>
-
-        <div class="fluent-controls">
-          <div class="pill-group" id="backdrop-pills">
-            <button class="pill active" data-backdrop="mica">Mica</button>
-            <button class="pill" data-backdrop="mica_alt">Mica Alt</button>
-            <button class="pill" data-backdrop="acrylic">Acrylic</button>
-            <button class="pill" data-backdrop="transparent">Transparent</button>
-            <button class="pill" data-backdrop="translucent">Translucent</button>
-            <button class="pill" data-backdrop="none">Opaque</button>
+    <div class="scroll-viewport">
+      <main class="shell">
+        <header class="header">
+          <div class="brand">
+            <div class="brand-badge">B</div>
+            <div>
+              <h1>Boson C++26 WebView2</h1>
+              <p>Fluent 2 Materials &bull; Headless Titlebar &bull; Native Notifications &bull; stdexec IPC</p>
+            </div>
           </div>
 
-          <label class="slider-wrap">
-            <span>Opacity</span>
-            <input id="opacity-slider" type="range" min="30" max="100" value="100" />
-            <span id="opacity-label">100%</span>
-          </label>
-        </div>
-
-        <div class="fluent-controls">
-          <button id="btn-notify" class="btn">Send Native Notification</button>
-          <button id="btn-open-file" class="btn">Open File Dialog</button>
-          <button id="btn-open-folder" class="btn">Pick Folder</button>
-          <button id="btn-topmost" class="pill">Always on Top: Off</button>
-          <button id="btn-theme" class="pill active">Dark Mode: On</button>
-        </div>
-
-        <pre id="out-native" class="output">Active backdrop: Mica (transparent WebView2 surface).</pre>
-      </article>
-
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">System Information</div>
-            <div class="card-sub">Query Win32 &amp; WebView2 runtime metadata</div>
+          <div class="fps-widget" title="Runs on main UI thread via requestAnimationFrame">
+            <div class="ring-container">
+              <svg class="ring-svg" viewBox="0 0 44 44">
+                <circle class="ring-track" cx="22" cy="22" r="18" />
+                <circle id="raf-arc" class="ring-arc" cx="22" cy="22" r="18" />
+              </svg>
+            </div>
+            <div class="fps-meta">
+              <span id="fps-value" class="fps-value">60 FPS</span>
+              <span class="fps-label">UI Thread Lock-Free</span>
+            </div>
           </div>
-          <span class="tag">App.get_system_info</span>
-        </div>
-        <button id="btn-sysinfo" class="btn">Fetch System Info</button>
-        <pre id="out-sysinfo" class="output">Ready.</pre>
-      </article>
+        </header>
 
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">Heavy C++ Compute (stdexec)</div>
-            <div class="card-sub">Prime sieve up to 2,000,000 off the UI thread</div>
-          </div>
-          <span class="tag">App.compute_primes</span>
-        </div>
-        <button id="btn-primes" class="btn">Compute Primes (2M)</button>
-        <pre id="out-primes" class="output">Watch the 60 FPS ring stay smooth during execution.</pre>
-      </article>
+        <section class="grid">
+          <article class="card full-width">
+            <div class="card-head">
+              <div>
+                <div class="card-title">Windows Fluent 2 Materials &amp; Native OS</div>
+                <div class="card-sub">DWM backdrops, window translucency, native notifications, and COM file dialogs</div>
+              </div>
+              <span class="tag">Boson.*</span>
+            </div>
 
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">ABI Exception Boundary</div>
-            <div class="card-sub">C++ exception caught &amp; rejected as JS Promise</div>
-          </div>
-          <span class="tag danger">App.trigger_error</span>
-        </div>
-        <button id="btn-error" class="btn danger">Trigger C++ Exception</button>
-        <pre id="out-error" class="output">Ready.</pre>
-      </article>
+            <div class="fluent-controls">
+              <div class="pill-group" id="backdrop-pills">
+                <button class="pill active" data-backdrop="mica">Mica</button>
+                <button class="pill" data-backdrop="mica_alt">Mica Alt</button>
+                <button class="pill" data-backdrop="acrylic">Acrylic</button>
+                <button class="pill" data-backdrop="transparent">Transparent</button>
+                <button class="pill" data-backdrop="translucent">Translucent</button>
+                <button class="pill" data-backdrop="none">Opaque</button>
+              </div>
 
-      <article class="card">
-        <div class="card-head">
-          <div>
-            <div class="card-title">IPC Latency Benchmark</div>
-            <div class="card-sub">1,000 round-trip calls (sequential &amp; parallel)</div>
-          </div>
-          <span class="tag">App.ping &times; 1000</span>
-        </div>
-        <button id="btn-bench" class="btn">Run 1000x Ping Benchmark</button>
-        <pre id="out-bench" class="output">Ready.</pre>
-      </article>
-    </section>
+              <label class="slider-wrap">
+                <span>Opacity</span>
+                <input id="opacity-slider" type="range" min="30" max="100" value="100" />
+                <span id="opacity-label">100%</span>
+              </label>
+            </div>
 
-    <footer class="status-bar">
-      <span>
-        <span class="dot ${isWebView ? '' : 'offline'}"></span>
-        ${isWebView ? 'Connected to native Boson WebView2 bridge' : 'Browser preview mode (WebView2 bridge not attached)'}
-      </span>
-      <span>Scheme: ${window.location.origin}</span>
-    </footer>
-  </main>
+            <div class="fluent-controls">
+              <button id="btn-notify" class="btn">Send Native Notification</button>
+              <button id="btn-open-file" class="btn">Open File Dialog</button>
+              <button id="btn-open-folder" class="btn">Pick Folder</button>
+              <button id="btn-topmost" class="pill">Always on Top: Off</button>
+              <button id="btn-theme" class="pill active">Theme: Dark</button>
+            </div>
+
+            <pre id="out-native" class="output">Active backdrop: Mica (Fluent 2 transparent WebView2 surface).</pre>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <div class="card-title">System Information</div>
+                <div class="card-sub">Query Win32 &amp; WebView2 runtime metadata</div>
+              </div>
+              <span class="tag">App.get_system_info</span>
+            </div>
+            <button id="btn-sysinfo" class="btn">Fetch System Info</button>
+            <pre id="out-sysinfo" class="output">Ready.</pre>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <div class="card-title">Heavy C++ Compute (stdexec)</div>
+                <div class="card-sub">Prime sieve up to 2,000,000 off the UI thread</div>
+              </div>
+              <span class="tag">App.compute_primes</span>
+            </div>
+            <button id="btn-primes" class="btn">Compute Primes (2M)</button>
+            <pre id="out-primes" class="output">Watch the 60 FPS ring stay smooth during execution.</pre>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <div class="card-title">ABI Exception Boundary</div>
+                <div class="card-sub">C++ exception caught &amp; rejected as JS Promise</div>
+              </div>
+              <span class="tag danger">App.trigger_error</span>
+            </div>
+            <button id="btn-error" class="btn danger">Trigger C++ Exception</button>
+            <pre id="out-error" class="output">Ready.</pre>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <div>
+                <div class="card-title">IPC Latency Benchmark</div>
+                <div class="card-sub">1,000 round-trip calls (sequential &amp; parallel)</div>
+              </div>
+              <span class="tag">App.ping &times; 1000</span>
+            </div>
+            <button id="btn-bench" class="btn">Run 1000x Ping Benchmark</button>
+            <pre id="out-bench" class="output">Ready.</pre>
+          </article>
+        </section>
+
+        <footer class="status-bar">
+          <span>
+            <span class="dot ${isWebView ? '' : 'offline'}"></span>
+            ${isWebView ? 'Connected to native Boson WebView2 bridge' : 'Browser preview mode (WebView2 bridge not attached)'}
+          </span>
+          <span>Scheme: ${window.location.origin}</span>
+        </footer>
+      </main>
+    </div>
+  </div>
 `;
 
 // Headless Titlebar Controls
+const winMaxBtn = document.querySelector<HTMLButtonElement>('#win-max')!;
+async function toggleMaximize(): Promise<void> {
+  try {
+    const res = await boson.call<BoolResponse>('Boson.maximize_or_restore');
+    winMaxBtn.innerHTML = res.value ? ICON_RESTORE : ICON_MAX;
+    winMaxBtn.title = res.value ? 'Restore' : 'Maximize';
+  } catch {
+    // Ignore outside WebView2
+  }
+}
+
 document.querySelector('#titlebar-drag')?.addEventListener('mousedown', (e) => {
   const ev = e as MouseEvent;
   if (ev.button === 0 && ev.detail === 1) {
@@ -165,13 +186,13 @@ document.querySelector('#titlebar-drag')?.addEventListener('mousedown', (e) => {
   }
 });
 document.querySelector('#titlebar-drag')?.addEventListener('dblclick', () => {
-  void boson.call<BoolResponse>('Boson.maximize_or_restore').catch(() => {});
+  void toggleMaximize();
 });
 document.querySelector('#win-min')?.addEventListener('click', () => {
   void boson.call('Boson.minimize').catch(() => {});
 });
-document.querySelector('#win-max')?.addEventListener('click', () => {
-  void boson.call<BoolResponse>('Boson.maximize_or_restore').catch(() => {});
+winMaxBtn.addEventListener('click', () => {
+  void toggleMaximize();
 });
 document.querySelector('#win-close')?.addEventListener('click', () => {
   void boson.call('Boson.close').catch(() => {});
@@ -217,12 +238,24 @@ function setOutput(el: HTMLPreElement, text: string, state: 'ok' | 'err' | 'neut
 // Fluent & Native OS Controls
 const outNative = document.querySelector<HTMLPreElement>('#out-native')!;
 const backdropPills = document.querySelectorAll<HTMLButtonElement>('#backdrop-pills .pill');
+const opacitySlider = document.querySelector<HTMLInputElement>('#opacity-slider')!;
+const opacityLabel = document.querySelector<HTMLSpanElement>('#opacity-label')!;
+
 backdropPills.forEach((pill) => {
   pill.addEventListener('click', async () => {
     const backdrop = pill.dataset.backdrop ?? 'mica';
     backdropPills.forEach((p) => p.classList.remove('active'));
     pill.classList.add('active');
     document.body.classList.toggle('solid-fallback', backdrop === 'none' || !isWebView);
+
+    if (backdrop === 'translucent') {
+      opacitySlider.value = '88';
+      opacityLabel.textContent = '88%';
+    } else {
+      opacitySlider.value = '100';
+      opacityLabel.textContent = '100%';
+    }
+
     try {
       const res = await boson.call<BackdropStatusResponse, { backdrop: string }>('Boson.set_backdrop', {
         backdrop,
@@ -238,11 +271,12 @@ backdropPills.forEach((pill) => {
   });
 });
 
-const opacitySlider = document.querySelector<HTMLInputElement>('#opacity-slider')!;
-const opacityLabel = document.querySelector<HTMLSpanElement>('#opacity-label')!;
 opacitySlider.addEventListener('input', () => {
   const pct = Number(opacitySlider.value);
   opacityLabel.textContent = `${pct}%`;
+  if (pct < 100) {
+    backdropPills.forEach((p) => p.classList.toggle('active', p.dataset.backdrop === 'translucent'));
+  }
   void boson.call<void, OpacityRequest>('Boson.set_opacity', { opacity: pct / 100 }).catch(() => {});
 });
 
@@ -263,8 +297,9 @@ let isDarkMode = true;
 const btnTheme = document.querySelector<HTMLButtonElement>('#btn-theme')!;
 btnTheme.addEventListener('click', async () => {
   isDarkMode = !isDarkMode;
+  document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
   btnTheme.classList.toggle('active', isDarkMode);
-  btnTheme.textContent = `Dark Mode: ${isDarkMode ? 'On' : 'Off'}`;
+  btnTheme.textContent = `Theme: ${isDarkMode ? 'Dark' : 'Light'}`;
   try {
     await boson.call<void, ToggleRequest>('Boson.set_dark_mode', { enabled: isDarkMode });
   } catch (err) {
