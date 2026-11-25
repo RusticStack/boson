@@ -1,0 +1,22 @@
+# Build artifacts
+build/
+out/
+.vs/
+.vscode/
+
+# MSVC / Visual Studio
+*.user
+*.suo
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.lib
+*.dll
+*.exp
+*.tlog
+
+# Frontend dependencies & build outputs
+frontend/node_modules/
+frontend/dist/
+frontend/package-lock.json
