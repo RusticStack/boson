@@ -21,6 +21,7 @@
 #include <boson/ipc/controllers/shortcut_controller.hpp>
 #include <boson/ipc/controllers/store_controller.hpp>
 #include <boson/ipc/controllers/taskbar_controller.hpp>
+#include <boson/ipc/controllers/terminal_controller.hpp>
 #include <boson/ipc/controllers/titlebar_controller.hpp>
 #include <boson/ipc/controllers/transfer_controller.hpp>
 #include <boson/ipc/controllers/updater_controller.hpp>
@@ -69,7 +70,8 @@ using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents
                                                       boson::ipc::WindowManagerEvents,
                                                       boson::ipc::NativeEvents,
                                                       boson::ipc::GpuEvents,
-                                                      boson::ipc::ProcessEvents>;
+                                                      boson::ipc::ProcessEvents,
+                                                      boson::ipc::TerminalEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -102,6 +104,7 @@ using AllControllers = Outputs<
     boson::ipc::StoreController<boson::demo::DemoSettings>,
     boson::ipc::SyncHostController,
     boson::ipc::TaskbarController,
+    boson::ipc::TerminalController,
     boson::ipc::TitlebarController,
     boson::ipc::TransferController,
     boson::ipc::UpdaterController,

@@ -787,8 +787,7 @@ export const utilityProcess = {
   },
 };
 
-/** Drop-in for `import { ipcRenderer, contextBridge, utilityProcess } from 'electron'` via a bundler alias. */
-/** Drop-in for `import { ipcRenderer, contextBridge } from 'electron'` via a bundler alias. */
+/** Drop-in for `import { ... } from 'electron'` via a bundler alias. */
 export const electron = {
   ipcRenderer, contextBridge, webUtils, webFrame, process, clipboard, startDrag, BrowserWindow, dialog, app, systemPreferences,
   utilityProcess,

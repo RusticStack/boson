@@ -99,6 +99,11 @@
 #include <boson/transfer/drag_out.hpp>
 #include <boson/ipc/controllers/drag_controller.hpp>
 
+#include <boson/terminal/output_channel.hpp>
+#include <boson/terminal/pty.hpp>
+#include <boson/terminal/terminal_host.hpp>
+#include <boson/ipc/controllers/terminal_controller.hpp>
+
 #include <boson/app/lifecycle.hpp>
 #include <boson/app/window_manager.hpp>
 #include <boson/ipc/controllers/window_controller.hpp>
