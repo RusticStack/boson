@@ -252,3 +252,169 @@ cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Buil
 ```
 
 This produces a single statically linked executable (`WebView2LoaderStatic.lib` embedded, no `WebView2Loader.dll` needed) with LTO and debug symbols stripped.
+
+---
+
+## 9. Shared Environment & Browser Arguments
+
+`core::Environment` owns one `ICoreWebView2Environment`, which means one browser process tree. Every WebView created from it shares that process tree, its cache and its cookies.
+
+```cpp
+boson::core::EnvironmentConfig cfg;
+cfg.user_data_folder = L"C:\\Users\\me\\AppData\\Local\\MyApp\\WebView2";
+cfg.additional_browser_arguments = {L"--autoplay-policy=no-user-gesture-required"};
+cfg.enable_features  = {L"msWebView2EnableDraggableRegions"};
+cfg.disable_features = {L"HardwareSecureDecryption"};
+cfg.language = L"pt-PT";
+cfg.enable_tracking_prevention = true;      // optionals left unset keep the runtime default
+auto env = boson::core::Environment::create(cfg);
+
+env->when_ready([](ICoreWebView2Environment* e) { /* e == nullptr when creation failed */ });
+env->process_infos();            // [{pid, kind: browser|renderer|gpu|utility|...}]
+env->browser_process_id();
+env->set_browser_process_exited_callback([](const boson::core::BrowserProcessExit& e) {});
+```
+
+`build_browser_arguments()` merges every `--enable-features=` and `--disable-features=` it finds, whether in `additional_browser_arguments` or in the two vectors, into one switch each. Chromium honours only the last occurrence of each switch, so passing several would silently drop features. A feature that appears in both lists ends up disabled.
+
+**Environment options are fixed for the lifetime of a browser process.** WebView2 starts one browser process per user data folder. A second environment with *different* options on the same folder fails with `HRESULT_FROM_WIN32(ERROR_INVALID_STATE)` (`0x8007139F`). To change arguments at runtime, use one of these:
+
+- `env->recreate(new_cfg, on_done)` closes every controller, waits for `BrowserProcessExited`, creates the new environment, and re-creates each registered WebView in place at its last URL. `on_ready` fires again for each WebView. It takes about 0.5 s in the integration test.
+- `boson::app::relaunch()` restarts the whole process (see §15).
+
+## 10. Multiple WebViews per Window
+
+`core::WebViewHost` owns the WebViews of one `Window`. It handles:
+
+- layout on `WM_SIZE` and `WM_DPICHANGED`;
+- `NotifyParentWindowPositionChanged` on every move;
+- hiding controllers while the window is minimized;
+- z-order.
+
+```cpp
+boson::core::WebViewHost host(window, env);
+host.set_default_asset_lookup([](std::string_view p) { return boson::assets::AssetRegistry::find(p); });
+
+auto& header  = host.create({.initial_url = "boson://app/header.html"});
+auto& content = host.create({.initial_url = "https://example.com", .serve_boson_assets = false});
+
+host.set_layout([&](boson::core::WebViewHost&, const boson::core::LayoutContext& ctx) {
+    const int h = ctx.px(40);                                  // 40 DIP header
+    header.set_bounds({0, 0, ctx.width(), h});
+    content.set_bounds({0, h, ctx.width(), ctx.height()});
+});
+
+content.set_visible(false);   // hidden WebViews are throttled
+header.bring_to_front();
+host.destroy(content);        // safe from inside content's own callbacks
+```
+
+In windowed mode each WebView lives inside a `BosonWebViewContainer` child HWND. The container is what provides z-order and bounds. Third-party content should set `settings.web_messages_enabled = false` and should not be attached to a `Bridge`.
+
+## 11. Backend → Frontend Events
+
+```cpp
+struct TabsUpdated { std::vector<Tab> tabs; std::uint64_t active; };
+struct AppEvents { TabsUpdated tabs_updated; };
+template <> struct glz::meta<AppEvents> {
+    static constexpr auto value = glz::object("tabs:updated", &AppEvents::tabs_updated);
+};
+
+boson::ipc::Bridge bridge(runner, marshal, router);
+bridge.attach(header);                                    // origins: boson://app + dev_url
+bridge.attach(other, {.allowed_origins = {"https://app.example.com"}});
+bridge.emit("tabs:updated", TabsUpdated{...});            // any thread, all attached WebViews
+bridge.emit_to(header.id(), "tabs:updated", TabsUpdated{...});
+```
+
+On the TypeScript side, `boson.on('tabs:updated', e => ...)` and `boson.once(...)` are typed from the `BosonEvents` interface. `TsGenerator::generate_with_events<AppEvents, Controllers...>()` emits that interface. Messages from origins that are not allowed are dropped and logged. RPC replies go back only to the WebView that sent the request.
+
+## 12. Navigation, Page Control and Content Events
+
+`WebView` exposes:
+
+- navigation: `navigate`, `navigate_to_string`, `go_back`/`go_forward`, `can_go_*`, `reload`, `stop`, `source`, `document_title`;
+- scripts: `execute_script` and `add_script_on_document_created`, each available as a callback or as a `CallbackSender` for `std::execution`;
+- page control: `set_zoom_factor`, `set_muted`, `open_devtools`, `open_task_manager`, `get_favicon_png`;
+- settings: `apply_settings(WebViewSettings)`.
+
+Never `sync_wait` a WebView sender on the UI thread. It completes from the message loop.
+
+`webview.events()` holds one `std::function` per WebView2 event:
+
+- title, source, history, navigation starting (cancellable) and completed, favicon;
+- new window (with a deferral), fullscreen, audio, muted;
+- process failed, `window.close()`, permissions, downloads.
+
+Opening `window.open` in a Boson WebView:
+
+```cpp
+tab.events().on_new_window_requested = [&](boson::core::NewWindowRequest& req) {
+    auto deferral = std::make_shared<boson::core::NewWindowDeferral>(req.defer());
+    auto& popup = host.create({.initial_url = ""});          // must not navigate first
+    popup.set_ready_callback([deferral, &popup] { deferral->complete_with(popup); });
+};
+```
+
+A `NewWindowDeferral` that is destroyed without being completed falls back to the default popup, so the page never hangs.
+
+## 13. Suspend vs. Destroy
+
+| | Suspend (`try_suspend` / `SleepPolicy`) | Destroy (`host.destroy`) |
+|---|---|---|
+| Page state (DOM, JS heap, scroll, forms) | kept | lost |
+| Renderer memory | mostly kept; trimmed with `MemoryUsageTarget::Low` | released |
+| Timers / network | paused | gone |
+| Cost to bring back | instant (`set_visible(true)` / `resume()`) | full reload |
+| Use for | background tabs the user will return to | closed tabs, long-idle tabs under memory pressure |
+
+`host.set_sleep_policy(SleepPolicy{.hidden_timeout = 5min})` suspends WebViews that have been hidden for that long and are not playing audio. `set_sleep_exempt()` opts a WebView out, for example your UI shell. A WebView must be hidden before it can be suspended.
+
+## 14. Window Events, DPI and Geometry
+
+```cpp
+window.on(WindowEventKind::CloseRequested, [](WindowEvent& e) { e.cancel = true; }); // veto
+window.on(WindowEventKind::DpiChanged, [](WindowEvent& e) { /* e.dpi */ });
+window.set_min_size(760, 520);    // DIPs
+window.set_bounds(rect); window.center(); window.show(); window.hide(); window.is_minimized();
+```
+
+The available events are Resize, Move, Minimize, Maximize, Restore, Focus, Blur, DpiChanged, CloseRequested, Destroyed, EnterSizeMove, ExitSizeMove, MaximizeButtonHover and MaximizeButtonPress. Width, height and minimum size are in DIPs. `WM_DPICHANGED` applies the suggested rect. `quit_on_destroy = false` keeps secondary windows from ending the message loop.
+
+## 15. App Regions and Snap Layouts
+
+CSS `app-region: drag` (and `no-drag`) works when `settings.non_client_region_support_enabled = true` (runtime support via `ICoreWebView2Settings9`). Set `EnvironmentConfig::enable_draggable_regions` as well, for older runtimes.
+
+For Windows 11 Snap Layouts on a custom maximize button, call `boson.registerMaximizeButton(el)` from TypeScript, or `window.set_maximize_button_rect(rect)` from C++. Boson then places an invisible layered child window over that rect, above the WebView's HWNDs. It answers `HTMAXBUTTON` and drives hover, press and maximize itself, and reports `MaximizeButtonHover`/`Press` so the page can style the button. Layered child windows require the Windows 10 `supportedOS` manifest. `boson_core` adds `cmake/boson.manifest` to every executable that links it.
+
+## 16. Composition Hosting
+
+`WebViewHost(window, env, HostingMode::Composition)` renders WebViews through `ICoreWebView2CompositionController` into a DirectComposition tree. WebViews can then overlap with real alpha (`set_opacity`, `set_corner_radius`, transparent backgrounds), which is how `boson_browser --composition` draws a translucent modal over a playing video. The host forwards mouse, wheel and cursor input and maps CSS app-regions to `WM_NCHITTEST`.
+
+Windowed hosting stays the default. Protected-content playback and MPO behaviour under composition hosting have not been verified; see [Composition & DRM spike](COMPOSITION_DRM_SPIKE.md).
+
+## 17. Lifecycle: Relaunch, Single Instance, Graceful Quit
+
+```cpp
+int WINAPI wWinMain(...) {
+    boson::app::wait_for_previous_instance();          // first line: pairs with relaunch()
+    auto instance = boson::app::single_instance(L"MyCompany.MyApp",
+        [&](std::vector<std::wstring> argv, std::wstring cwd) { /* open argv in this instance */ });
+    if (!instance) return 0;                            // forwarded to the primary
+    ...
+    window.on(WindowEventKind::CloseRequested, [&](WindowEvent& e) {
+        e.cancel = true; window.hide();
+        boson::app::quit({env});                         // closes controllers, waits for the browser process, then WM_QUIT
+    });
+}
+
+boson::app::relaunch({.extra_args = {L"--screenshare"}, .remove_args = {L"--screenshare"}}, {env});
+```
+
+`relaunch` shuts the environment down, starts the executable again with `--boson-wait-pid=<pid>`, and exits. The new process waits for that PID, so it never races the old browser process for the user data folder.
+
+## 18. Tests and Examples
+
+- `boson_tests`: unit tests (no WebView2 runtime needed).
+- `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
+- `boson_browser [--composition] [--screenshare] [url...]` is a multi-tab browser built on all of the above. Set `BOSON_BROWSER_LOG=<file>` to capture its event log.

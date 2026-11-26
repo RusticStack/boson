@@ -160,6 +160,7 @@ app.innerHTML = `
             <span class="dot ${isWebView ? '' : 'offline'}"></span>
             ${isWebView ? 'Connected to native Boson WebView2 bridge' : 'Browser preview mode (WebView2 bridge not attached)'}
           </span>
+          <span id="tick-status">Backend events: waiting…</span>
           <span>Scheme: ${window.location.origin}</span>
         </footer>
       </main>
@@ -179,14 +180,31 @@ async function toggleMaximize(): Promise<void> {
   }
 }
 
-document.querySelector('#titlebar-drag')?.addEventListener('mousedown', (e) => {
-  const ev = e as MouseEvent;
-  if (ev.button === 0 && ev.detail === 1) {
-    void boson.call('Boson.start_drag').catch(() => {});
-  }
+// Dragging, double-click-to-maximize and Aero Snap come from CSS `app-region: drag` (see .titlebar-drag).
+// Boson.start_drag stays as a fallback for runtimes without non-client region support.
+if (!CSS.supports('app-region', 'drag') && !CSS.supports('-webkit-app-region', 'drag')) {
+  document.querySelector('#titlebar-drag')?.addEventListener('mousedown', (e) => {
+    const ev = e as MouseEvent;
+    if (ev.button === 0 && ev.detail === 1) {
+      void boson.call('Boson.start_drag').catch(() => {});
+    }
+  });
+  document.querySelector('#titlebar-drag')?.addEventListener('dblclick', () => {
+    void toggleMaximize();
+  });
+}
+
+// Windows 11 Snap Layouts: the native window treats this button's rect as HTMAXBUTTON. While the
+// pointer is there the page gets no mouse events, so hover/press styling arrives as backend events.
+boson.registerMaximizeButton(winMaxBtn);
+boson.on('window:maximize-button', (state) => {
+  winMaxBtn.classList.toggle('hover', state.hovered);
+  winMaxBtn.classList.toggle('pressed', state.pressed);
 });
-document.querySelector('#titlebar-drag')?.addEventListener('dblclick', () => {
-  void toggleMaximize();
+boson.on('window:state', (state) => {
+  winMaxBtn.innerHTML = state.maximized ? ICON_RESTORE : ICON_MAX;
+  winMaxBtn.title = state.maximized ? 'Restore' : 'Maximize';
+  document.body.classList.toggle('window-blurred', !state.focused);
 });
 document.querySelector('#win-min')?.addEventListener('click', () => {
   void boson.call('Boson.minimize').catch(() => {});
@@ -196,6 +214,14 @@ winMaxBtn.addEventListener('click', () => {
 });
 document.querySelector('#win-close')?.addEventListener('click', () => {
   void boson.call('Boson.close').catch(() => {});
+});
+
+// Backend-to-frontend events: emitted from a stdexec worker thread via Bridge::emit.
+const tickStatus = document.querySelector<HTMLSpanElement>('#tick-status');
+boson.on('app:tick', (tick) => {
+  if (tickStatus) {
+    tickStatus.textContent = `Backend event #${tick.seq} from worker thread ${tick.worker_thread_id}`;
+  }
 });
 
 // Live 60fps RAF animation ring + FPS counter

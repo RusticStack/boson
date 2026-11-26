@@ -11,6 +11,8 @@ Boson pairs bare-metal Win32/COM (`ICoreWebView2`) with compile-time IPC reflect
 - **Bare-Metal Win32 & Fluent Design**: Direct `Microsoft::WRL::ComPtr` integration with Per-Monitor V2 DPI awareness, `DWMWA_USE_IMMERSIVE_DARK_MODE`, **headless custom titlebar** (`headless_titlebar`), rounded corners, and Windows 11/10 backdrops (**Mica**, **Mica Alt**, **Acrylic**, **Transparent**, **Translucent**) paired with transparent WebView2 compositing.
 - **Native OS Integration (`Boson.*`)**: Built-in `SystemController` exposing window drag/minimize/maximize/close/fullscreen/always-on-top, live backdrop & opacity switching, native Windows notifications (`Shell_NotifyIconW` + `SystemTray`), and COM file/folder dialogs (`IFileOpenDialog` / `IFileSaveDialog`).
 - **Non-Blocking Async IPC (`stdexec`)**: Incoming `WebMessageReceived` JSON requests are dispatched onto a lock-free `exec::static_thread_pool` via `stdexec::schedule | stdexec::then` inside `exec::async_scope`, then marshaled back to the Win32 UI thread via `WM_APP + 1`. C++ exceptions are caught at the ABI boundary and returned as structured JSON error responses.
+- **Multi-WebView & Browser-Grade Control**: One shared `Environment` (with browser-argument merging and in-place `recreate`) can host many WebViews per window through `WebViewHost`, in windowed or DirectComposition hosting. It provides the full set of navigation, content and lifecycle events, `window.open` into Boson WebViews, tab sleeping (`SleepPolicy`), CSS `app-region` drag and Windows 11 Snap Layouts.
+- **Events & Lifecycle**: Thread-safe `Bridge::emit`/`emit_to` with typed `boson.on`, origin allow-lists, vetoable window close, `WM_DPICHANGED` handling, single instance with argv forwarding, `relaunch`, and graceful `quit`.
 - **Compile-Time Reflection Router**: Supports C++26 P2996 static reflection (`<meta>`, `^^T`, `[:member:]`) when available, with a seamless zero-macro [Glaze](https://github.com/stephenberry/glaze) (`v9.1.0`) reflection path that compiles cleanly on MSVC 19.52 today.
 - **Zero-Disk-I/O Asset Serving**: Registers `boson://app/*` as a secure custom scheme via `ICoreWebView2EnvironmentOptions4` and serves embedded frontend assets directly from memory using `SHCreateMemStream` + `CreateWebResourceResponse`.
 - **Automated TypeScript Bindings**: `boson_tsgen` inspects your reflected C++ controllers and emits `boson-bindings.d.ts` for end-to-end type-safe Promise RPC calls.
@@ -84,7 +86,10 @@ cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Buil
 .\build\release\boson_demo.exe --backdrop=acrylic
 .\build\release\boson_demo.exe --dev http://localhost:5173
 
-# Run unit tests
+# Multi-tab browser example (window.open -> tab, fullscreen, sleeping tabs, screenshare toggle)
+.\build\release\boson_browser.exe [--composition] [--screenshare] [url ...]
+
+# Run unit tests (+ WebView2 integration tests; use -LE integration to skip them)
 ctest --test-dir build/release --output-on-failure
 
 # Regenerate TypeScript bindings
@@ -138,6 +143,7 @@ console.log(res.pong, res.timestamp_us);
 
 - [Developer Usage Guide](docs/USAGE.md) — Integrating `boson_core`, defining controllers, wiring `Window`/`WebView`/`Bridge`, generating TypeScript bindings, HMR dev mode, and Release LTO builds.
 - [Electron & Tauri v2 Gap Analysis](docs/ELECTRON_TAURI_GAP_ANALYSIS.md) — Detailed capability matrix comparing Boson against Electron and Tauri v2, plus the roadmap to full parity.
+- [Composition & DRM Spike](docs/COMPOSITION_DRM_SPIKE.md) — Composition hosting status, protected-content risks, and a test procedure.
 - [Architecture Plan](PLAN.md) — The 5-phase design blueprint for Boson.
 
 ## License

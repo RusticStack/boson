@@ -109,4 +109,46 @@ void TaskRunner::dispatch(std::uint64_t callback_id, std::function<std::string()
     m_scope.spawn(std::move(sender));
 }
 
+void TaskRunner::dispatch(
+    std::uint64_t callback_id,
+    std::function<std::string()> work,
+    std::function<void(std::string)> on_complete) {
+    if (!on_complete) {
+        dispatch(callback_id, std::move(work));
+        return;
+    }
+    auto sender =
+        stdexec::schedule(m_scheduler.get_scheduler()) |
+        stdexec::then([callback_id, task = std::move(work)]() noexcept -> std::string {
+            return invoke_safely(callback_id, task);
+        }) |
+        stdexec::then([&marshal = m_marshal, done = std::move(on_complete)](std::string payload) noexcept {
+            try {
+                marshal.post_task([done, result = std::move(payload)]() mutable {
+                    done(std::move(result));
+                });
+            } catch (...) {
+                // Never allow exceptions to escape background worker into stdexec::async_scope.
+            }
+        });
+
+    m_scope.spawn(std::move(sender));
+}
+
+void TaskRunner::spawn(std::function<void()> work) {
+    if (!work) {
+        return;
+    }
+    auto sender =
+        stdexec::schedule(m_scheduler.get_scheduler()) |
+        stdexec::then([task = std::move(work)]() noexcept {
+            try {
+                task();
+            } catch (...) {
+                // Background work must not take down the pool.
+            }
+        });
+    m_scope.spawn(std::move(sender));
+}
+
 }  // namespace boson::exec

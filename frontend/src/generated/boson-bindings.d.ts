@@ -48,6 +48,23 @@ export interface SaveDialogRequest {
     default_name: string;
 }
 
+export interface ZoomRequest {
+    factor: number;
+}
+
+export interface SizeRequest {
+    width: number;
+    height: number;
+}
+
+export interface ElementRectRequest {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    visible: boolean;
+}
+
 export interface PingResult {
     pong: boolean;
     timestamp_us: number;
@@ -72,6 +89,24 @@ export interface ComputePrimesRequest {
     limit: number;
 }
 
+export interface TickEvent {
+    seq: number;
+    timestamp_us: number;
+    worker_thread_id: number;
+}
+
+export interface WindowStateEvent {
+    maximized: boolean;
+    minimized: boolean;
+    focused: boolean;
+    dpi: number;
+}
+
+export interface MaximizeButtonEvent {
+    hovered: boolean;
+    pressed: boolean;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -87,8 +122,22 @@ export interface BosonApi {
     "Boson.notify": (params: NotifyRequest) => Promise<BoolResponse>;
     "Boson.open_file_dialog": (params: OpenDialogRequest) => Promise<FileDialogResponse>;
     "Boson.save_file_dialog": (params: SaveDialogRequest) => Promise<FileDialogResponse>;
+    "Boson.go_back": () => Promise<void>;
+    "Boson.go_forward": () => Promise<void>;
+    "Boson.reload": () => Promise<void>;
+    "Boson.open_devtools": () => Promise<void>;
+    "Boson.set_zoom": (params: ZoomRequest) => Promise<void>;
+    "Boson.set_min_size": (params: SizeRequest) => Promise<void>;
+    "Boson.center": () => Promise<void>;
+    "Boson.set_maximize_button_rect": (params: ElementRectRequest) => Promise<void>;
     "App.ping": () => Promise<PingResult>;
     "App.get_system_info": () => Promise<SystemInfo>;
     "App.compute_primes": (params: ComputePrimesRequest) => Promise<ComputePrimesResult>;
     "App.trigger_error": () => Promise<void>;
+}
+
+export interface BosonEvents {
+    "app:tick": TickEvent;
+    "window:state": WindowStateEvent;
+    "window:maximize-button": MaximizeButtonEvent;
 }

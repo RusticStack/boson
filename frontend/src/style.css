@@ -102,6 +102,8 @@ body.solid-fallback {
 }
 
 .titlebar-drag {
+  app-region: drag;
+  -webkit-app-region: drag;
   flex: 1;
   height: 100%;
   display: flex;
@@ -124,6 +126,8 @@ body.solid-fallback {
 }
 
 .titlebar-controls {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
   display: flex;
   height: 100%;
   align-items: stretch;
@@ -147,8 +151,14 @@ body.solid-fallback {
   height: 32px;
 }
 
-.win-btn:hover {
+.win-btn:hover,
+.win-btn.hover {
   background: var(--titlebar-hover);
+}
+
+.win-btn.pressed {
+  background: var(--titlebar-hover);
+  opacity: 0.8;
 }
 
 .win-btn.close:hover {
