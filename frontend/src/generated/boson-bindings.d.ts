@@ -196,6 +196,60 @@ export interface DragStartRequest {
     effects: Array<string>;
 }
 
+export interface FileDialogReply {
+    cancelled: boolean;
+    paths: Array<string>;
+    path: string;
+    filter_index: number;
+    error: string;
+}
+
+export interface DialogFilter {
+    name: string;
+    extensions: Array<string>;
+}
+
+export interface FileDialogRequest {
+    title: string;
+    default_path: string;
+    default_name: string;
+    button_label: string;
+    filters: Array<DialogFilter>;
+    filter_index: number;
+    multiple: boolean;
+    show_hidden: boolean;
+    confirm_overwrite: boolean;
+    default_extension: string;
+    add_to_recent: boolean;
+    modal: boolean;
+}
+
+export interface MessageBoxReply {
+    response: number;
+    checkbox_checked: boolean;
+    cancelled: boolean;
+}
+
+export interface MessageBoxRequest {
+    title: string;
+    message: string;
+    detail: string;
+    type: string;
+    buttons: Array<string>;
+    default_id: number;
+    cancel_id: number;
+    checkbox_label: string;
+    checkbox_checked: boolean;
+    footer: string;
+    command_links: boolean;
+    modal: boolean;
+}
+
+export interface ErrorBoxRequest {
+    title: string;
+    content: string;
+}
+
 export interface FsTextResponse {
     text: string;
 }
@@ -303,6 +357,184 @@ export interface FsGrantRequest {
     read_only: boolean;
 }
 
+export interface GpuSurfaceInfo {
+    id: number;
+    width: number;
+    height: number;
+    content: string;
+    layer: string;
+}
+
+export interface GpuRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface GpuCreateSurfaceRequest {
+    content: string;
+    layer: string;
+    z_index: number;
+    rect: GpuRect;
+    scale: number;
+    opaque: boolean;
+    vsync: boolean;
+    page: string;
+}
+
+export interface GpuOk {
+    ok: boolean;
+}
+
+export interface GpuSurfaceRef {
+    id: number;
+}
+
+export interface GpuBoundsUpdate {
+    id: number;
+    rect: GpuRect;
+    clip?: GpuRect | null;
+    visible: boolean;
+}
+
+export interface GpuSetBoundsRequest {
+    scale: number;
+    surfaces: Array<GpuBoundsUpdate>;
+}
+
+export interface GpuAdapter {
+    name: string;
+    vendor_id: number;
+    device_id: number;
+    dedicated_video_memory_mb: number;
+    software: boolean;
+}
+
+export interface GpuInfo {
+    backend: string;
+    adapter: GpuAdapter;
+    feature_level: string;
+    tearing_supported: boolean;
+    compositor_clock: boolean;
+    vulkan_available: boolean;
+    vulkan_version: string;
+    hosting: string;
+    device_generation: number;
+    surfaces: number;
+    contents: Array<string>;
+    adapters: Array<GpuAdapter>;
+}
+
+export interface DbInfoResponse {
+    backend: string;
+    version: string;
+    namespaces: Array<string>;
+    read_only_namespaces: Array<string>;
+}
+
+export interface DbGetResponse {
+    found: boolean;
+    value: string;
+}
+
+export interface DbKeyRequest {
+    ns: string;
+    key: string;
+}
+
+export interface DbSetRequest {
+    ns: string;
+    key: string;
+    value: string;
+}
+
+export interface DbBoolResponse {
+    value: boolean;
+}
+
+export interface DbKeysResponse {
+    keys: Array<string>;
+}
+
+export interface DbListRequest {
+    ns: string;
+    prefix: string;
+    limit?: number | null;
+}
+
+export interface KvEntry {
+    key: string;
+    value: string;
+    updated_ms: number;
+}
+
+export interface DbEntriesResponse {
+    entries: Array<KvEntry>;
+}
+
+export interface DbCountResponse {
+    count: number;
+}
+
+export interface DbNsRequest {
+    ns: string;
+}
+
+export interface HttpHeader {
+    name: string;
+    value: string;
+}
+
+export interface HttpFetchResponse {
+    status: number;
+    ok: boolean;
+    headers: Array<HttpHeader>;
+    body: string;
+    base64: boolean;
+    final_url: string;
+    protocol: string;
+    redirects: number;
+    attempts: number;
+    from_cache: boolean;
+}
+
+export interface HttpFetchRequest {
+    method: string;
+    url: string;
+    headers: Array<HttpHeader>;
+    body: string;
+    timeout_ms?: number | null;
+    base64: boolean;
+    use_cache: boolean;
+}
+
+export interface HttpDownloadStarted {
+    id: number;
+}
+
+export interface HttpDownloadRequest {
+    url: string;
+    path: string;
+    headers: Array<HttpHeader>;
+    hash: string;
+    expected_hash: string;
+    overwrite: boolean;
+    timeout_ms?: number | null;
+}
+
+export interface HttpBoolResponse {
+    value: boolean;
+}
+
+export interface HttpIdRequest {
+    id: number;
+}
+
+export interface HttpHostsResponse {
+    hosts: Array<string>;
+}
+
 export interface LogWriteRequest {
     level: string;
     category: string;
@@ -395,6 +627,68 @@ export interface TrayIconRequest {
     icon_base64: string;
 }
 
+export interface ProcessMetric {
+    pid: number;
+    type: string;
+    working_set_bytes: number;
+    peak_working_set_bytes: number;
+    private_bytes: number;
+    cpu_percent: number;
+    cpu_time_ms: number;
+    created_unix_ms: number;
+    accessible: boolean;
+}
+
+export interface AppMetrics {
+    processes: Array<ProcessMetric>;
+    total_working_set_bytes: number;
+    total_private_bytes: number;
+    total_cpu_percent: number;
+    logical_processors: number;
+    sample_duration_us: number;
+}
+
+export interface LocaleInfo {
+    user_locale: string;
+    system_locale: string;
+    ui_language: string;
+    preferred_languages: Array<string>;
+    region: string;
+    decimal_separator: string;
+    list_separator: string;
+    time_24h: boolean;
+    first_day_of_week: number;
+    measurement_metric: number;
+}
+
+export interface SystemPreferences {
+    dark_mode: boolean;
+    high_contrast: boolean;
+    high_contrast_scheme: string;
+    reduced_motion: boolean;
+    transparency_effects: boolean;
+    accent_color: string;
+    text_scale_factor: number;
+    keyboard_cues: boolean;
+    caret_blink_ms: number;
+    double_click_ms: number;
+    wheel_scroll_lines: number;
+    swap_mouse_buttons: boolean;
+}
+
+export interface ShellResult {
+    ok: boolean;
+    error: string;
+}
+
+export interface ShutdownBlockRequest {
+    reason: string;
+}
+
+export interface CloseToTrayRequest {
+    enabled: boolean;
+}
+
 export interface ToastResponse {
     ok: boolean;
     used_fallback: boolean;
@@ -457,11 +751,6 @@ export interface ToastRequest {
     level: string;
 }
 
-export interface ShellResult {
-    ok: boolean;
-    error: string;
-}
-
 export interface ToastUpdateRequest {
     tag: string;
     group: string;
@@ -477,6 +766,51 @@ export interface ToastSupportResponse {
     supported: boolean;
     app_user_model_id: string;
     setting: string;
+}
+
+export interface PermissionRule {
+    origin: string;
+    kind: string;
+    decision: string;
+}
+
+export interface PermissionQueryReply {
+    decision: string;
+    remembered: boolean;
+}
+
+export interface PermissionTarget {
+    origin: string;
+    kind: string;
+}
+
+export interface PermissionSetRequest {
+    origin: string;
+    kind: string;
+    decision: string;
+}
+
+export interface PermissionOriginRequest {
+    origin: string;
+}
+
+export interface PermissionPromptEvent {
+    id: number;
+    webview_id: number;
+    origin: string;
+    uri: string;
+    kind: string;
+    user_initiated: boolean;
+}
+
+export interface PermissionRespondRequest {
+    id: number;
+    decision: string;
+    remember: boolean;
+}
+
+export interface PromptHandlerRequest {
+    enabled: boolean;
 }
 
 export interface PowerStatusResponse {
@@ -516,6 +850,95 @@ export interface PowerBlockerRequest {
 
 export interface PowerBlockerIdRequest {
     id: number;
+}
+
+export interface ProcessSpawnResponse {
+    id: number;
+    pid: number;
+    executable: string;
+}
+
+export interface ProcessSpawnRequest {
+    command: string;
+    args: Array<string>;
+    cwd: string;
+    env: Record<string, string>;
+    clear_env: boolean;
+    stdin_mode: string;
+    stdout_mode: string;
+    stderr_mode: string;
+    output: string;
+    encoding: string;
+    ipc: boolean;
+    detached: boolean;
+    hide_window: boolean;
+    timeout_ms: number;
+    flow_control: boolean;
+    high_water_bytes: number;
+    max_line_bytes: number;
+}
+
+export interface ProcessExecRequest {
+    command: string;
+    args: Array<string>;
+    cwd: string;
+    env: Record<string, string>;
+    clear_env: boolean;
+    input: string;
+    input_encoding: string;
+    timeout_ms: number;
+    max_buffer: number;
+    encoding: string;
+    hide_window: boolean;
+}
+
+export interface ProcessWriteResponse {
+    ok: boolean;
+    pending_bytes: number;
+}
+
+export interface ProcessWriteRequest {
+    id: number;
+    data: string;
+    encoding: string;
+}
+
+export interface ProcessOkResponse {
+    ok: boolean;
+}
+
+export interface ProcessIdRequest {
+    id: number;
+}
+
+export interface ProcessKillRequest {
+    id: number;
+    signal: string;
+    tree: boolean;
+}
+
+export interface ProcessAckRequest {
+    id: number;
+    stream: string;
+    bytes: number;
+}
+
+export interface ProcessSendRequest {
+    id: number;
+    message: string;
+}
+
+export interface ProcessListEntry {
+    id: number;
+    pid: number;
+    executable: string;
+    running: boolean;
+    exec: boolean;
+    exit_code?: number | null;
+}
+
+export interface ProcessListResponse {
+    processes: Array<ProcessListEntry>;
 }
 
 export interface SafeStorageAvailability {
@@ -738,6 +1161,116 @@ export interface JumpListRequest {
 
 export interface RecentDocumentRequest {
     path: string;
+}
+
+export interface TerminalInfoResponse {
+    id: number;
+    pid: number;
+    cols: number;
+    rows: number;
+    running: boolean;
+    exit_code?: number | null;
+    visible: boolean;
+    command_line: string;
+    backend: string;
+    title: string;
+    cwd: string;
+}
+
+export interface TerminalSpawnResponse {
+    terminal: TerminalInfoResponse;
+    channel: string;
+    fast_input: boolean;
+}
+
+export interface TerminalSpawnRequest {
+    command?: string | null;
+    args?: Array<string> | null;
+    command_line?: string | null;
+    cwd?: string | null;
+    env?: Record<string, string> | null;
+    inherit_env?: boolean | null;
+    cols?: number | null;
+    rows?: number | null;
+    visible?: boolean | null;
+    backend?: string | null;
+}
+
+export interface TerminalWriteRequest {
+    id: number;
+    data: string;
+}
+
+export interface TerminalResizeRequest {
+    id: number;
+    cols: number;
+    rows: number;
+}
+
+export interface TerminalKillRequest {
+    id: number;
+    signal?: string | null;
+}
+
+export interface TerminalVisibleRequest {
+    id: number;
+    visible: boolean;
+}
+
+export interface TerminalAckRequest {
+    id: number;
+    bytes: number;
+}
+
+export interface TerminalIdRequest {
+    id: number;
+}
+
+export interface TerminalListResponse {
+    terminals: Array<TerminalInfoResponse>;
+}
+
+export interface TerminalProcessEntry {
+    pid: number;
+    parent_pid: number;
+    name: string;
+}
+
+export interface TerminalProcessResponse {
+    id: number;
+    foreground_pid: number;
+    foreground_name: string;
+    cwd: string;
+    cwd_source: string;
+    processes: Array<TerminalProcessEntry>;
+}
+
+export interface TerminalStatsResponse {
+    bytes_in: number;
+    bytes_sent: number;
+    bytes_acked: number;
+    bytes_dropped: number;
+    chunks_sent: number;
+    pending: number;
+    in_flight: number;
+    max_pending: number;
+    max_in_flight: number;
+    reader_pauses: number;
+    replays: number;
+    sync_holds: number;
+    ring_capacity: number;
+    visible: boolean;
+    reader_paused: boolean;
+}
+
+export interface TerminalCapabilitiesResponse {
+    system_conpty: boolean;
+    bundled_conpty: boolean;
+    default_shell: string;
+    channel: string;
+    fast_input: boolean;
+    ring_bytes: number;
+    window_bytes: number;
 }
 
 export interface TitlebarRect {
@@ -1040,6 +1573,125 @@ export interface DrmProbeRequest {
     timeout_ms?: number | null;
 }
 
+export interface WindowInfo {
+    label: string;
+    title: string;
+    url: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale_factor: number;
+    visible: boolean;
+    focused: boolean;
+    enabled: boolean;
+    maximized: boolean;
+    minimized: boolean;
+    fullscreen: boolean;
+    modal: boolean;
+    parent: string;
+    close_guard: boolean;
+    webview_ids: Array<number>;
+}
+
+export interface WindowCreateRequest {
+    label: string;
+    url: string;
+    title: string;
+    width?: number | null;
+    height?: number | null;
+    min_width?: number | null;
+    min_height?: number | null;
+    x?: number | null;
+    y?: number | null;
+    center: boolean;
+    frameless: boolean;
+    headless_titlebar: boolean;
+    backdrop: string;
+    dark_mode?: boolean | null;
+    always_on_top: boolean;
+    skip_taskbar: boolean;
+    transparent: boolean;
+    visible: boolean;
+    focus: boolean;
+    parent: string;
+    modal: boolean;
+    persist_state: boolean;
+    hide_on_close: boolean;
+}
+
+export interface WindowListResponse {
+    windows: Array<WindowInfo>;
+}
+
+export interface WindowLabelRequest {
+    label: string;
+}
+
+export interface WindowShowRequest {
+    label: string;
+    focus: boolean;
+}
+
+export interface WindowNavigateRequest {
+    label: string;
+    url: string;
+}
+
+export interface WindowTitleRequest {
+    label: string;
+    title: string;
+}
+
+export interface WindowBoundsRequest {
+    label: string;
+    x?: number | null;
+    y?: number | null;
+    width?: number | null;
+    height?: number | null;
+}
+
+export interface WindowSizeRequest {
+    label: string;
+    width: number;
+    height: number;
+}
+
+export interface WindowFlagRequest {
+    label: string;
+    enabled: boolean;
+}
+
+export interface WindowOkResponse {
+    ok: boolean;
+}
+
+export interface WindowConfirmCloseRequest {
+    label: string;
+    request_id: number;
+    allow: boolean;
+}
+
+export interface WindowEmitRequest {
+    target: string;
+    event: string;
+    payload: unknown;
+}
+
+export interface ZoomState {
+    webview_id: number;
+    factor: number;
+    level: number;
+}
+
+export interface ZoomSetFactorRequest {
+    factor: number;
+}
+
+export interface ZoomLevelRequest {
+    level: number;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -1160,6 +1812,122 @@ export interface DragEndedEvent {
     error: string;
 }
 
+export interface WindowLabelEvent {
+    label: string;
+}
+
+export interface WindowBoundsEvent {
+    label: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale_factor: number;
+}
+
+export interface WindowCloseRequestedEvent {
+    label: string;
+    request_id: number;
+}
+
+export interface PermissionChangedEvent {
+    rules: Array<PermissionRule>;
+}
+
+export interface SessionQueryEndEvent {
+    logoff: boolean;
+    close_app: boolean;
+    critical: boolean;
+    blocked: boolean;
+    block_reason: string;
+}
+
+export interface SessionEndEvent {
+    ending: boolean;
+    logoff: boolean;
+    close_app: boolean;
+    critical: boolean;
+}
+
+export interface TrayHiddenEvent {
+    hidden: boolean;
+}
+
+export interface WebNotificationEventPayload {
+    id: number;
+    webview_id: number;
+    origin: string;
+    title: string;
+    body: string;
+    tag: string;
+}
+
+export interface GpuDeviceLostEvent {
+    reason: string;
+    recovered: boolean;
+    generation: number;
+}
+
+export interface ProcessOutputEvent {
+    id: number;
+    stream: string;
+    data?: string | null;
+    lines?: Array<string> | null;
+    encoding: string;
+    bytes: number;
+}
+
+export interface ProcessExitEvent {
+    id: number;
+    pid: number;
+    code: number;
+    killed: boolean;
+    timed_out: boolean;
+    signal?: string | null;
+    duration_ms: number;
+}
+
+export interface ProcessMessageEvent {
+    id: number;
+    message: string;
+}
+
+export interface TerminalExitEvent {
+    id: number;
+    exit_code: number;
+    end: number;
+}
+
+export interface TerminalTitleEvent {
+    id: number;
+    title: string;
+}
+
+export interface TerminalCwdEvent {
+    id: number;
+    cwd: string;
+}
+
+export interface HttpProgressEvent {
+    id: number;
+    received: number;
+    total?: number | null;
+    fraction: number;
+    bytes_per_second: number;
+}
+
+export interface HttpDoneEvent {
+    id: number;
+    ok: boolean;
+    cancelled: boolean;
+    error: string;
+    error_kind: string;
+    status: number;
+    path: string;
+    bytes: number;
+    digest: string;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1210,6 +1978,11 @@ export interface BosonApi {
     "Credential.remove": (params: CredentialKeyRequest) => Promise<CredentialRemoveResponse>;
     "Credential.list": () => Promise<CredentialListResponse>;
     "Drag.start": (params: DragStartRequest) => Promise<DragStartResponse>;
+    "Dialog.open": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.save": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.pick_folder": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.message_box": (params: MessageBoxRequest) => Promise<MessageBoxReply>;
+    "Dialog.error_box": (params: ErrorBoxRequest) => Promise<void>;
     "Fs.read_text": (params: FsPathRequest) => Promise<FsTextResponse>;
     "Fs.read_bytes": (params: FsPathRequest) => Promise<FsBytesResponse>;
     "Fs.write_text": (params: FsWriteTextRequest) => Promise<void>;
@@ -1226,6 +1999,23 @@ export interface BosonApi {
     "Fs.unwatch": (params: FsWatchIdRequest) => Promise<FsBoolResponse>;
     "Fs.scopes": () => Promise<FsScopesResponse>;
     "Fs.grant_from_dialog": (params: FsGrantRequest) => Promise<FsGrantResponse>;
+    "Gpu.create_surface": (params: GpuCreateSurfaceRequest) => Promise<GpuSurfaceInfo>;
+    "Gpu.destroy": (params: GpuSurfaceRef) => Promise<GpuOk>;
+    "Gpu.set_bounds": (params: GpuSetBoundsRequest) => Promise<GpuOk>;
+    "Gpu.request_frame": (params: GpuSurfaceRef) => Promise<GpuOk>;
+    "Gpu.info": () => Promise<GpuInfo>;
+    "Db.info": () => Promise<DbInfoResponse>;
+    "Db.get": (params: DbKeyRequest) => Promise<DbGetResponse>;
+    "Db.set": (params: DbSetRequest) => Promise<void>;
+    "Db.remove": (params: DbKeyRequest) => Promise<DbBoolResponse>;
+    "Db.keys": (params: DbListRequest) => Promise<DbKeysResponse>;
+    "Db.entries": (params: DbListRequest) => Promise<DbEntriesResponse>;
+    "Db.clear": (params: DbNsRequest) => Promise<DbCountResponse>;
+    "Db.count": (params: DbNsRequest) => Promise<DbCountResponse>;
+    "Http.fetch": (params: HttpFetchRequest) => Promise<HttpFetchResponse>;
+    "Http.download": (params: HttpDownloadRequest) => Promise<HttpDownloadStarted>;
+    "Http.cancel": (params: HttpIdRequest) => Promise<HttpBoolResponse>;
+    "Http.allowed_hosts": () => Promise<HttpHostsResponse>;
     "Log.write": (params: LogWriteRequest) => Promise<void>;
     "Menu.set_application_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
     "Menu.clear_application_menu": () => Promise<void>;
@@ -1240,18 +2030,41 @@ export interface BosonApi {
     "Menu.tray_set_tooltip": (params: TrayTooltipRequest) => Promise<BoolResponse>;
     "Menu.tray_set_icon": (params: TrayIconRequest) => Promise<BoolResponse>;
     "Menu.tray_show_balloon": (params: NotifyRequest) => Promise<BoolResponse>;
+    "Native.metrics": () => Promise<AppMetrics>;
+    "Native.locale": () => Promise<LocaleInfo>;
+    "Native.system_preferences": () => Promise<SystemPreferences>;
+    "Native.set_shutdown_block_reason": (params: ShutdownBlockRequest) => Promise<ShellResult>;
+    "Native.set_close_to_tray_enabled": (params: CloseToTrayRequest) => Promise<ShellResult>;
+    "Native.hide_to_tray": () => Promise<ShellResult>;
+    "Native.restore_from_tray": () => Promise<ShellResult>;
     "Notification.show": (params: ToastRequest) => Promise<ToastResponse>;
     "Notification.update_progress": (params: ToastUpdateRequest) => Promise<ShellResult>;
     "Notification.hide": (params: ToastTargetRequest) => Promise<ShellResult>;
     "Notification.remove": (params: ToastTargetRequest) => Promise<ShellResult>;
     "Notification.clear_all": () => Promise<ShellResult>;
     "Notification.support": () => Promise<ToastSupportResponse>;
+    "Permissions.list": () => Promise<Array<PermissionRule>>;
+    "Permissions.query": (params: PermissionTarget) => Promise<PermissionQueryReply>;
+    "Permissions.set": (params: PermissionSetRequest) => Promise<ShellResult>;
+    "Permissions.reset": (params: PermissionTarget) => Promise<ShellResult>;
+    "Permissions.clear": (params: PermissionOriginRequest) => Promise<ShellResult>;
+    "Permissions.pending": () => Promise<Array<PermissionPromptEvent>>;
+    "Permissions.respond": (params: PermissionRespondRequest) => Promise<ShellResult>;
+    "Permissions.set_prompt_handler": (params: PromptHandlerRequest) => Promise<void>;
     "Power.status": () => Promise<PowerStatusResponse>;
     "Power.idle_time": () => Promise<IdleTimeResponse>;
     "Power.idle_state": (params: IdleStateRequest) => Promise<IdleStateResponse>;
     "Power.start_blocker": (params: PowerBlockerRequest) => Promise<PowerBlockerResponse>;
     "Power.stop_blocker": (params: PowerBlockerIdRequest) => Promise<ShellResult>;
     "Power.is_blocker_started": (params: PowerBlockerIdRequest) => Promise<PowerBlockerResponse>;
+    "Process.spawn": (params: ProcessSpawnRequest) => Promise<ProcessSpawnResponse>;
+    "Process.exec": (params: ProcessExecRequest) => Promise<ProcessSpawnResponse>;
+    "Process.write": (params: ProcessWriteRequest) => Promise<ProcessWriteResponse>;
+    "Process.close_stdin": (params: ProcessIdRequest) => Promise<ProcessOkResponse>;
+    "Process.kill": (params: ProcessKillRequest) => Promise<ProcessOkResponse>;
+    "Process.ack": (params: ProcessAckRequest) => Promise<void>;
+    "Process.send": (params: ProcessSendRequest) => Promise<ProcessOkResponse>;
+    "Process.list": () => Promise<ProcessListResponse>;
     "SafeStorage.is_available": () => Promise<SafeStorageAvailability>;
     "SafeStorage.encrypt_string": (params: SafeStorageText) => Promise<SafeStorageData>;
     "SafeStorage.decrypt_string": (params: SafeStorageData) => Promise<SafeStorageText>;
@@ -1294,6 +2107,19 @@ export interface BosonApi {
     "Taskbar.clear_jump_list": () => Promise<ShellResult>;
     "Taskbar.add_recent_document": (params: RecentDocumentRequest) => Promise<ShellResult>;
     "Taskbar.clear_recent_documents": () => Promise<ShellResult>;
+    "Terminal.spawn": (params: TerminalSpawnRequest) => Promise<TerminalSpawnResponse>;
+    "Terminal.write": (params: TerminalWriteRequest) => Promise<void>;
+    "Terminal.resize": (params: TerminalResizeRequest) => Promise<void>;
+    "Terminal.kill": (params: TerminalKillRequest) => Promise<void>;
+    "Terminal.set_visible": (params: TerminalVisibleRequest) => Promise<void>;
+    "Terminal.ack": (params: TerminalAckRequest) => Promise<void>;
+    "Terminal.replay": (params: TerminalIdRequest) => Promise<void>;
+    "Terminal.dispose": (params: TerminalIdRequest) => Promise<void>;
+    "Terminal.info": (params: TerminalIdRequest) => Promise<TerminalInfoResponse>;
+    "Terminal.list": () => Promise<TerminalListResponse>;
+    "Terminal.processes": (params: TerminalIdRequest) => Promise<TerminalProcessResponse>;
+    "Terminal.stats": (params: TerminalIdRequest) => Promise<TerminalStatsResponse>;
+    "Terminal.capabilities": () => Promise<TerminalCapabilitiesResponse>;
     "Titlebar.set_overlay": (params: TitlebarOverlayRequest) => Promise<TitlebarOverlayEvent>;
     "Titlebar.get_overlay": () => Promise<TitlebarOverlayEvent>;
     "Titlebar.get_theme": () => Promise<ThemeChangedEvent>;
@@ -1324,6 +2150,36 @@ export interface BosonApi {
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
     "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
+    "Window.create": (params: WindowCreateRequest) => Promise<WindowInfo>;
+    "Window.list": () => Promise<WindowListResponse>;
+    "Window.get": (params: WindowLabelRequest) => Promise<WindowInfo>;
+    "Window.current": () => Promise<WindowInfo>;
+    "Window.show": (params: WindowShowRequest) => Promise<void>;
+    "Window.hide": (params: WindowLabelRequest) => Promise<void>;
+    "Window.focus": (params: WindowLabelRequest) => Promise<void>;
+    "Window.close": (params: WindowLabelRequest) => Promise<void>;
+    "Window.destroy": (params: WindowLabelRequest) => Promise<void>;
+    "Window.navigate": (params: WindowNavigateRequest) => Promise<void>;
+    "Window.minimize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.maximize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.unmaximize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.restore": (params: WindowLabelRequest) => Promise<void>;
+    "Window.center": (params: WindowLabelRequest) => Promise<void>;
+    "Window.set_title": (params: WindowTitleRequest) => Promise<void>;
+    "Window.set_bounds": (params: WindowBoundsRequest) => Promise<WindowInfo>;
+    "Window.set_min_size": (params: WindowSizeRequest) => Promise<void>;
+    "Window.set_always_on_top": (params: WindowFlagRequest) => Promise<void>;
+    "Window.set_fullscreen": (params: WindowFlagRequest) => Promise<void>;
+    "Window.set_skip_taskbar": (params: WindowFlagRequest) => Promise<WindowOkResponse>;
+    "Window.set_close_guard": (params: WindowFlagRequest) => Promise<void>;
+    "Window.confirm_close": (params: WindowConfirmCloseRequest) => Promise<WindowOkResponse>;
+    "Window.emit": (params: WindowEmitRequest) => Promise<WindowOkResponse>;
+    "Zoom.get": () => Promise<ZoomState>;
+    "Zoom.set": (params: ZoomSetFactorRequest) => Promise<ZoomState>;
+    "Zoom.set_level": (params: ZoomLevelRequest) => Promise<ZoomState>;
+    "Zoom.zoom_in": () => Promise<ZoomState>;
+    "Zoom.zoom_out": () => Promise<ZoomState>;
+    "Zoom.reset": () => Promise<ZoomState>;
 }
 
 export interface BosonEvents {
@@ -1356,4 +2212,38 @@ export interface BosonEvents {
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
     "drag:ended": DragEndedEvent;
+    "window:created": WindowLabelEvent;
+    "window:closed": WindowLabelEvent;
+    "window:focus": WindowLabelEvent;
+    "window:blur": WindowLabelEvent;
+    "window:moved": WindowBoundsEvent;
+    "window:resized": WindowBoundsEvent;
+    "window:maximized": WindowLabelEvent;
+    "window:minimized": WindowLabelEvent;
+    "window:restored": WindowLabelEvent;
+    "window:shown": WindowLabelEvent;
+    "window:hidden": WindowLabelEvent;
+    "window:close-requested": WindowCloseRequestedEvent;
+    "permission:prompt": PermissionPromptEvent;
+    "permission:changed": PermissionChangedEvent;
+    "zoom:changed": ZoomState;
+    "system:preferences-changed": SystemPreferences;
+    "system:locale-changed": LocaleInfo;
+    "session:query-end": SessionQueryEndEvent;
+    "session:end": SessionEndEvent;
+    "tray:window-hidden": TrayHiddenEvent;
+    "web-notification:shown": WebNotificationEventPayload;
+    "web-notification:clicked": WebNotificationEventPayload;
+    "web-notification:closed": WebNotificationEventPayload;
+    "gpu:device_lost": GpuDeviceLostEvent;
+    "process:stdout": ProcessOutputEvent;
+    "process:stderr": ProcessOutputEvent;
+    "process:exit": ProcessExitEvent;
+    "process:exec": unknown;
+    "process:message": ProcessMessageEvent;
+    "terminal:exit": TerminalExitEvent;
+    "terminal:title": TerminalTitleEvent;
+    "terminal:cwd": TerminalCwdEvent;
+    "http:progress": HttpProgressEvent;
+    "http:done": HttpDoneEvent;
 }

@@ -28,6 +28,11 @@
 #include <boson/ipc/controllers/platform_events.hpp>
 #include <boson/ipc/sync_bridge.hpp>
 #include <boson/ipc/system_controller.hpp>
+#include <boson/ipc/controllers/drag_controller.hpp>
+#include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/gpu_controller.hpp>
+#include <boson/ipc/controllers/db_controller.hpp>
+#include <boson/ipc/controllers/http_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../../examples/demo/app_controller.hpp"

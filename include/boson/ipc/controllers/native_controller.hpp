@@ -369,7 +369,7 @@ private:
 
 // ---- Zoom -------------------------------------------------------------------------------------------------
 
-struct ZoomFactorRequest {
+struct ZoomSetFactorRequest {
     double factor = 1.0;
 };
 
@@ -402,7 +402,7 @@ public:
     [[nodiscard]] ZoomState get() const {
         return m_marshal.invoke_sync([this]() { return state(m_webview.zoom_factor().value_or(1.0)); });
     }
-    [[nodiscard]] ZoomState set(ZoomFactorRequest req) const { return apply([f = req.factor](double) { return f; }); }
+    [[nodiscard]] ZoomState set(ZoomSetFactorRequest req) const { return apply([f = req.factor](double) { return f; }); }
     [[nodiscard]] ZoomState set_level(ZoomLevelRequest req) const {
         return apply([f = native::zoom_level_to_factor(req.level)](double) { return f; });
     }
