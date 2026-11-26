@@ -256,6 +256,80 @@ thread. Files rotate at `max_file_bytes` to `boson.1.log` ... `boson.<max_files-
 everything queued is written. `LogController` (name `Log`) exposes `Log.write({level, category, message})` to JS;
 categories get a `web:` prefix.
 
+## Single executable
+
+One `.exe` the user copies to a clean Windows 10/11 machine and double-clicks. Build:
+
+```bat
+cmake -S . -B build\single -G Ninja -DCMAKE_BUILD_TYPE=Release -DBOSON_SINGLE_EXE=ON    :: or: cmake --preset single-exe
+cmake --build build\single --target boson_hello
+ctest --test-dir build\single -R single_exe_deps
+```
+
+`BOSON_SINGLE_EXE=ON` turns on the static CRT (`/MT`, same as `BOSON_STATIC_CRT`) for the whole tree. Everything else is
+already static: the WebView2 loader (`WebView2LoaderStatic.lib`, no `WebView2Loader.dll`), glaze and stdexec (header
+only), miniz, SQLite and ZephyrDB (static libraries), the frontend (compiled into the exe by `cmake/EmbedAssets.cmake`,
+served from memory on `boson://app/`), the manifest (embedded). In your own `CMakeLists.txt`:
+
+```cmake
+add_executable(my_app WIN32 main.cpp)
+target_link_libraries(my_app PRIVATE boson_core)
+boson_single_exe(my_app)                       # adds ctest my_app_single_exe_deps; needs -DBOSON_SINGLE_EXE=ON
+# boson_single_exe(my_app EMBED_BOOTSTRAPPER)  # also compiles the WebView2 bootstrapper in (see below)
+```
+
+`my_app_single_exe_deps` runs `dumpbin /dependents` on the produced file and fails when it imports anything that is not a
+Windows system DLL (allow-list in `cmake/BosonCheckDependents.cmake`; `api-ms-win-*` sets are accepted). Typical imports
+of `boson_hello`: ADVAPI32, ole32, SHLWAPI, dwmapi, dcomp, USER32, GDI32, SHELL32, CRYPT32, WINHTTP, WINTRUST, KERNEL32.
+A `/MD` build fails the check on `VCRUNTIME140*.dll` / `MSVCP140*.dll`. Sizes are in [PERFORMANCE.md](PERFORMANCE.md#single-executable)
+(`boson_hello` 618 KB, `boson_demo` 1.46 MB, `boson_browser` 1.36 MB).
+
+### The one thing that cannot be static: the WebView2 Runtime
+
+The runtime (the Edge-based engine, ~250 MB on disk) is a system component. It is preinstalled on Windows 11 and on Windows 10
+that is up to date; a few Windows 10 machines (offline, managed, stripped) do not have it. Call this first thing in `wWinMain`:
+
+```cpp
+boson::shipping::RuntimeGuardOptions guard;
+#if defined(BOSON_EMBED_WEBVIEW2_BOOTSTRAPPER)
+#include <boson_webview2_bootstrapper.hpp>
+guard.embedded_bootstrapper = boson::shipping::embedded_bootstrapper();
+#endif
+if (!boson::shipping::require_webview2_runtime(L"My App", guard)) return 2;   // before any WebView2 environment
+```
+
+- **Default single-exe mode (no bootstrapper)**: if `GetAvailableCoreWebView2BrowserVersionString` finds no runtime, a native error
+  dialog explains it, shows `https://developer.microsoft.com/microsoft-edge/webview2/` and offers to open it. Nothing is
+  downloaded behind the user's back; the function returns false.
+- **`EMBED_BOOTSTRAPPER` (opt-in)**: Microsoft's Evergreen bootstrapper (`MicrosoftEdgeWebview2Setup.exe`, 1.83 MB) is compiled
+  into the exe (`boson_webview2_bootstrapper.hpp`, generated at configure time from
+  `https://go.microsoft.com/fwlink/p/?LinkId=2124703` or from `-DBOSON_WEBVIEW2_BOOTSTRAPPER_FILE=<path>`; the SHA-256 is logged).
+  When the runtime is missing a Yes/No prompt asks consent, the bytes are written to `%TEMP%`, their Authenticode signature
+  must be valid and from "Microsoft Corporation" (the same check as the downloaded bootstrapper), then it runs
+  `/silent /install` and the runtime is checked again. The bootstrapper itself downloads the runtime, so the machine needs
+  internet at that moment; the exe grows by 1.83 MB (hello: 618 KB -> 2.45 MB).
+  `-DBOSON_HELLO_EMBED_BOOTSTRAPPER=ON` builds `boson_hello` that way.
+- **Licence of the bootstrapper**: Microsoft's distribution guide ("Distribute your app and the WebView2 Runtime") names the
+  bootstrapper as the way to cover machines without the runtime. The terms you accept are the ones shown on the download page
+  (`https://developer.microsoft.com/microsoft-edge/webview2/`, "Evergreen Bootstrapper"); this was **not** verified programmatically,
+  so confirm the redistribution wording there before shipping a file that contains Microsoft's installer.
+- **Fixed Version runtime (alternative)**: Microsoft ships the runtime as a folder ("Fixed Version", > 250 MB per Microsoft's
+  guide, redistributable with your app under the WebView2 Runtime licence). It can **not** be a single file: WebView2 starts
+  `msedgewebview2.exe` from a directory (`CreateCoreWebView2EnvironmentWithOptions(browserExecutableFolder)` or
+  `EnvironmentConfig::browser_executable_folder`), so the folder must exist on disk. You would have to ship it beside the exe (or a
+  self-extracting archive that unpacks it to `%LOCALAPPDATA%`), you take over servicing it, and the app grows by ~250 MB. The
+  Evergreen runtime is smaller, auto-updating and shared by all apps, so it stays the default.
+
+### Things that are not single-exe
+
+- **Bundled ConPTY** (`conpty.dll` + `OpenConsole.exe`, Terminal module) are loaded from beside the exe. Without them
+  `PtyBackend::Auto` uses the in-box kernel32 ConPTY (works, slower on heavy output), so a single exe is fine unless you opt in
+  to `PtyBackend::Bundled`. Embedding the two files and extracting them to a hash-verified per-version cache under
+  `%LOCALAPPDATA%` was **not implemented**.
+- **Sidecars** (`boson_add_sidecar`, e.g. a bundled `node.exe`) are separate files by definition. Not embedded.
+- A sandboxed (Windows Sandbox) clean-machine run was not possible here (feature not enabled); see PERFORMANCE.md.
+- Compressing the exe with UPX works but costs about +120 ms start-up in our measurement (PERFORMANCE.md); not recommended.
+
 ## Notes for integration
 
 - Controllers to register in tsgen: `boson::ipc::UpdaterController` (`boson/ipc/controllers/updater_controller.hpp`)
@@ -290,9 +364,16 @@ Tested on this machine (Windows 11 Pro 26300, MSVC Debug, /W4, zero warnings):
   runtime DLLs). `boson_updater_sign` keygen / sign / verify was run by hand (valid signature accepted, other version
   rejected).
 - `boson_tests` ("All Boson tests passed.") and `boson_integration_tests` (108/108) still pass.
+- Single executable (optimisation pass, Release): `ctest -R single_exe_deps` passes for `boson_hello`, `boson_demo` and
+  `boson_browser`, and fails (naming `MSVCP140.dll`, `VCRUNTIME140*.dll`) on a `/MD` build. `boson_hello` single exe launches.
+  With runtime discovery forced to an empty folder (`WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`), both the
+  plain and the embedded-bootstrapper variants show the native dialog. New `boson_shipping_tests` checks cover the embedded
+  bootstrapper path (never downloaded, unsigned bytes rejected) and `require_webview2_runtime`.
 
 Not verified:
 
+- **Single executable on a clean machine / Windows Sandbox** (not available here) and an actual install through the embedded
+  bootstrapper (the machine already has a runtime); the bootstrapper redistribution wording.
 - **MSI**: WiX is not installed, so `cpack -G WIX` and the generated WiX fragment / patch (shortcut AUMID, protocol
   keys, `RemoveFolderEx`, per-user scope, v3 and v4 syntax) were never compiled, and the helper's msiexec branch never
   ran against a real MSI.

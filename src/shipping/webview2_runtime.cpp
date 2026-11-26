@@ -9,11 +9,31 @@
 #include "file_util.hpp"
 
 #include <WebView2.h>
+#include <shellapi.h>
 
 namespace boson::shipping {
 
 namespace {
 constexpr std::string_view kCategory = "webview2";
+
+/// Writes bytes to path (create-new semantics are not needed: the name carries the process id).
+bool write_bytes(const std::filesystem::path& path, std::span<const std::byte> bytes) noexcept {
+    const detail::UniqueHandle file = detail::make_handle(
+        CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!file) {
+        return false;
+    }
+    std::size_t done = 0;
+    while (done < bytes.size()) {
+        const DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - done, 1u << 20));
+        DWORD written = 0;
+        if (!WriteFile(file.get(), bytes.data() + done, chunk, &written, nullptr) || written == 0) {
+            return false;
+        }
+        done += written;
+    }
+    return true;
+}
 }
 
 std::optional<std::wstring> installed_webview2_version(std::wstring_view browser_folder) {
@@ -80,9 +100,6 @@ RuntimeEnsureResult ensure_webview2_runtime(const RuntimeBootstrapOptions& optio
 
     const std::filesystem::path dir = options.download_dir.empty() ? detail::temp_directory() : options.download_dir;
     const auto setup = dir / (L"MicrosoftEdgeWebview2Setup-" + std::to_wstring(GetCurrentProcessId()) + L".exe");
-    log(LogLevel::Info, "downloading the WebView2 bootstrapper from " + options.bootstrapper_url);
-    const DownloadResult downloaded = download_file(
-        options.bootstrapper_url, setup, options.http, options.on_progress, stop, DownloadOptions{.resume = false});
     struct Cleanup {
         const std::filesystem::path& path;
         ~Cleanup() {
@@ -94,11 +111,23 @@ RuntimeEnsureResult ensure_webview2_runtime(const RuntimeBootstrapOptions& optio
             DeleteFileW(partial.c_str());
         }
     } cleanup{setup};
-    if (!downloaded.ok) {
-        result.status = downloaded.cancelled ? RuntimeStatus::Cancelled : RuntimeStatus::DownloadFailed;
-        result.error = downloaded.error;
-        log(LogLevel::Error, "bootstrapper download failed: " + downloaded.error);
-        return result;
+    if (!options.embedded_bootstrapper.empty()) {
+        if (!write_bytes(setup, options.embedded_bootstrapper)) {
+            result.status = RuntimeStatus::DownloadFailed;
+            result.error = "cannot write the embedded bootstrapper (" + detail::win32_message(GetLastError()) + ")";
+            log(LogLevel::Error, result.error);
+            return result;
+        }
+    } else {
+        log(LogLevel::Info, "downloading the WebView2 bootstrapper from " + options.bootstrapper_url);
+        const DownloadResult downloaded = download_file(
+            options.bootstrapper_url, setup, options.http, options.on_progress, stop, DownloadOptions{.resume = false});
+        if (!downloaded.ok) {
+            result.status = downloaded.cancelled ? RuntimeStatus::Cancelled : RuntimeStatus::DownloadFailed;
+            result.error = downloaded.error;
+            log(LogLevel::Error, "bootstrapper download failed: " + downloaded.error);
+            return result;
+        }
     }
 
     const AuthenticodeResult signature = verify_authenticode(setup, options.required_signer);
@@ -166,6 +195,46 @@ void ensure_webview2_runtime_async(
             marshal.post_task([done = std::move(done), result = std::move(result)]() mutable { done(std::move(result)); });
         }
     });
+}
+
+bool require_webview2_runtime(std::wstring_view app_name, const RuntimeGuardOptions& options) {
+    const std::wstring name(app_name);
+    RuntimeBootstrapOptions bootstrap;
+    bootstrap.embedded_bootstrapper = options.embedded_bootstrapper;
+    bootstrap.browser_folder = options.browser_folder;
+    bootstrap.logger = options.logger;
+    bootstrap.assume_missing = options.assume_missing;
+    if (!options.silent) {
+        bootstrap.consent = message_box_consent(options.owner, name);
+    }
+    if (options.embedded_bootstrapper.empty()) {
+        // Single-exe default: nothing is downloaded behind the user's back.
+        if (!options.assume_missing && installed_webview2_version(options.browser_folder)) {
+            return true;
+        }
+        log_message(options.logger, LogLevel::Error, kCategory, "WebView2 runtime not found and no bootstrapper is embedded");
+        if (!options.silent) {
+            const std::wstring text = name +
+                                      L" needs the Microsoft Edge WebView2 Runtime, which is not installed on this computer.\n\n"
+                                      L"Download and install it (free, from Microsoft):\n" +
+                                      core::utf8_to_wide(kWebView2DownloadPage) + L"\n\nOpen the download page now?";
+            if (MessageBoxW(options.owner, text.c_str(), name.c_str(), MB_YESNO | MB_ICONERROR | MB_SETFOREGROUND) == IDYES) {
+                ShellExecuteW(nullptr, L"open", core::utf8_to_wide(kWebView2DownloadPage).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            }
+        }
+        return false;
+    }
+    const RuntimeEnsureResult result = ensure_webview2_runtime(bootstrap);
+    if (result.ok()) {
+        return true;
+    }
+    if (!options.silent && result.status != RuntimeStatus::ConsentDeclined) {
+        const std::wstring text = name + L" could not install the Microsoft Edge WebView2 Runtime:\n\n" +
+                                  core::utf8_to_wide(result.error) + L"\n\nInstall it manually from:\n" +
+                                  core::utf8_to_wide(kWebView2DownloadPage);
+        MessageBoxW(options.owner, text.c_str(), name.c_str(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    }
+    return false;
 }
 
 std::function<bool()> message_box_consent(HWND owner, std::wstring app_name) {

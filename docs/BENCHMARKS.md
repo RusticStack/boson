@@ -229,6 +229,17 @@ Reports land in `build\bench-results\browser\` (`<app>.scenario.json` with every
 | `boson_browser.exe` (Release, LTO, static CRT) | 1,486,848 | 605,866 |
 | `wails_browser.exe` (production, `-s -w`) | 10,578,432 | 4,292,581 |
 
+Optimisation pass (Release, LTO, RTTI off - now the default; see [PERFORMANCE.md](PERFORMANCE.md)):
+
+| Binary | Bytes | ZIP (Deflate, optimal) |
+|---|---:|---:|
+| `boson_demo.exe` (`/MD`) | 1,209,856 | 517,837 |
+| `boson_demo.exe` (single exe, `-DBOSON_SINGLE_EXE=ON`) | 1,463,808 | 642,366 |
+| `boson_browser.exe` (`/MD`) | 1,119,232 | 470,758 |
+| `boson_browser.exe` (single exe) | 1,355,264 | 591,787 |
+| `boson_hello.exe` (`/MD`, minimal app) | 402,432 | 171,739 |
+| `boson_hello.exe` (single exe) | 618,496 | 281,791 |
+
 - `/MD` builds need the Visual C++ 2015-2026 redistributable (`MSVCP140`, `MSVCP140_ATOMIC_WAIT`, `VCRUNTIME140`,
   `VCRUNTIME140_1`), which is often present but is not guaranteed on a clean Windows. The static-CRT build and the
   Wails binary depend only on Windows DLLs. The WebView2 runtime is assumed installed for both (Evergreen).
