@@ -34,8 +34,13 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | **Notifications** | Native Notifications | WinRT Toast (`toastXml`) + balloon | `tauri-plugin-notification` (WinRT Toast) | WinRT toasts without the Windows App SDK (buttons, inline reply, progress, COM activation) + `Shell_NotifyIconW` fallback |
 | **Storage & Security** | Scoped Filesystem API | Node `fs` (unscoped) | `tauri-plugin-fs` (capability-scoped) | `security::ScopedFs` + `Fs.*` (traversal, junction, UNC/device-path protection; watch) |
 | | Secure Credential Store | `safeStorage` (Win32 DPAPI) | `stronghold` / `keyring` | `SafeStorage` (DPAPI) + `CredentialStore` (Windows Credential Manager) |
+| | Embedded database | `better-sqlite3` (native module) | `tauri-plugin-sql` | `db::Database` + `Table<T>` (glaze row mapping, prepared-statement cache, transactions) on SQLite or ZephyrDB, `KvStore` + namespaced `Db` controller ([NATIVE_SERVICES.md](NATIVE_SERVICES.md)) |
 | | Settings Store | `electron-store` | `tauri-plugin-store` | `store::Store<T>` (typed, defaults, corrupt-file recovery, atomic saves) + `Store` controller and `store:changed` ([STORE.md](STORE.md)) |
 | | Per-Window Capabilities / CSP | `contextIsolation` + `sandbox` + CSP | `capabilities/*.json` + `security.csp` | `CapabilityPolicy` per WebView/origin (checked before dispatch) + strict default CSP + navigation/new-window policies |
+| **Native services** | HTTP client (no CORS) | `net.request` / `fetch` in main | `tauri-plugin-http` | `net::HttpClient` (WinHTTP, redirects checked per hop, gzip/deflate, retries, timeouts, cancel, caps, cache, system/explicit proxy, senders) + `Http` controller with a host allow-list and downloads to `ScopedFs` paths |
+| | Archives | Userland (`adm-zip`, `yauzl`) | — | `archive::ZipReader` / `ZipWriter` (deflate, ZIP64, traversal / symlink / bomb rejection, staging extraction) |
+| | Hashing | Node `crypto` | Rust crates | `crypto::Hasher` (CNG MD5/SHA-1/SHA-2, streaming, files) |
+| | Atomic directory installs | — | — | `fs::InstallTransaction` (staged swap, rollback, crash recovery) + `TempDir` + known folders (OneDrive aware) |
 | **Distribution** | Code Signing | Authenticode (`signtool`) | `signtool.exe` integration | `boson_sign_target` (thumbprint, PFX, Azure Trusted Signing parameters) |
 | | Installers (NSIS / MSI / MSIX) | Forge / `electron-builder` | Built-in `tauri bundler` | `boson_package`: ZIP and MSIX built and tested; MSI (CPack WiX) templates untested (WiX not installed) |
 | | Auto-Updater | `autoUpdater` / `electron-updater` | `tauri-plugin-updater` (Ed25519) | `shipping::Updater` (manifest, staged rollout, resume, SHA-256 + ECDSA P-256 signatures, rollback) |
@@ -60,6 +65,7 @@ Done (see the module docs):
 - Capabilities, CSP, safe storage, credentials, scoped FS: [SECURITY.md](SECURITY.md)
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
+- HTTP client, archives, hashing, staged installs, SQLite / ZephyrDB: [NATIVE_SERVICES.md](NATIVE_SERVICES.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
 - Electron/Tauri/Wails shims and migration tables: [MIGRATION.md](MIGRATION.md), [PORTING.md](PORTING.md); measurements: [BENCHMARKS.md](BENCHMARKS.md)
 

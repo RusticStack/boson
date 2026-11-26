@@ -106,8 +106,21 @@
 #include <boson/shipping/version.hpp>
 #include <boson/shipping/webview2_runtime.hpp>
 
+#include <boson/archive/zip.hpp>
+#include <boson/crypto/hash.hpp>
+#include <boson/db/database.hpp>
+#include <boson/db/kv_store.hpp>
+#include <boson/db/table.hpp>
+#include <boson/fs/install_transaction.hpp>
+#include <boson/fs/known_folders.hpp>
+#include <boson/net/http_cache.hpp>
+#include <boson/net/http_client.hpp>
+#include <boson/net/proxy.hpp>
+
 #include <boson/ipc/controllers/log_controller.hpp>
 #include <boson/ipc/controllers/updater_controller.hpp>
+#include <boson/ipc/controllers/db_controller.hpp>
+#include <boson/ipc/controllers/http_controller.hpp>
 
 #include <boson/assets/asset_registry.hpp>
 

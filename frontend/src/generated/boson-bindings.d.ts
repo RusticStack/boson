@@ -186,6 +186,61 @@ export interface CredentialListResponse {
     keys: Array<string>;
 }
 
+export interface DbInfoResponse {
+    backend: string;
+    version: string;
+    namespaces: Array<string>;
+    read_only_namespaces: Array<string>;
+}
+
+export interface DbGetResponse {
+    found: boolean;
+    value: string;
+}
+
+export interface DbKeyRequest {
+    ns: string;
+    key: string;
+}
+
+export interface DbSetRequest {
+    ns: string;
+    key: string;
+    value: string;
+}
+
+export interface DbBoolResponse {
+    value: boolean;
+}
+
+export interface DbKeysResponse {
+    keys: Array<string>;
+}
+
+export interface DbListRequest {
+    ns: string;
+    prefix: string;
+    limit?: number | null;
+}
+
+export interface KvEntry {
+    key: string;
+    value: string;
+    updated_ms: number;
+}
+
+export interface DbEntriesResponse {
+    entries: Array<KvEntry>;
+}
+
+export interface DbCountResponse {
+    count: number;
+}
+
+export interface DbNsRequest {
+    ns: string;
+}
+
 export interface FsTextResponse {
     text: string;
 }
@@ -291,6 +346,60 @@ export interface FsGrantRequest {
     pick_folder: boolean;
     allow_multiple: boolean;
     read_only: boolean;
+}
+
+export interface HttpHeader {
+    name: string;
+    value: string;
+}
+
+export interface HttpFetchResponse {
+    status: number;
+    ok: boolean;
+    headers: Array<HttpHeader>;
+    body: string;
+    base64: boolean;
+    final_url: string;
+    protocol: string;
+    redirects: number;
+    attempts: number;
+    from_cache: boolean;
+}
+
+export interface HttpFetchRequest {
+    method: string;
+    url: string;
+    headers: Array<HttpHeader>;
+    body: string;
+    timeout_ms?: number | null;
+    base64: boolean;
+    use_cache: boolean;
+}
+
+export interface HttpDownloadStarted {
+    id: number;
+}
+
+export interface HttpDownloadRequest {
+    url: string;
+    path: string;
+    headers: Array<HttpHeader>;
+    hash: string;
+    expected_hash: string;
+    overwrite: boolean;
+    timeout_ms?: number | null;
+}
+
+export interface HttpBoolResponse {
+    value: boolean;
+}
+
+export interface HttpIdRequest {
+    id: number;
+}
+
+export interface HttpHostsResponse {
+    hosts: Array<string>;
 }
 
 export interface LogWriteRequest {
@@ -1121,6 +1230,26 @@ export interface FsChangeBatch {
     closed: boolean;
 }
 
+export interface HttpProgressEvent {
+    id: number;
+    received: number;
+    total?: number | null;
+    fraction: number;
+    bytes_per_second: number;
+}
+
+export interface HttpDoneEvent {
+    id: number;
+    ok: boolean;
+    cancelled: boolean;
+    error: string;
+    error_kind: string;
+    status: number;
+    path: string;
+    bytes: number;
+    digest: string;
+}
+
 export interface StoreChangedEvent_DemoSettings {
     store: string;
     value: DemoSettings;
@@ -1176,6 +1305,14 @@ export interface BosonApi {
     "Credential.get": (params: CredentialKeyRequest) => Promise<CredentialGetResponse>;
     "Credential.remove": (params: CredentialKeyRequest) => Promise<CredentialRemoveResponse>;
     "Credential.list": () => Promise<CredentialListResponse>;
+    "Db.info": () => Promise<DbInfoResponse>;
+    "Db.get": (params: DbKeyRequest) => Promise<DbGetResponse>;
+    "Db.set": (params: DbSetRequest) => Promise<void>;
+    "Db.remove": (params: DbKeyRequest) => Promise<DbBoolResponse>;
+    "Db.keys": (params: DbListRequest) => Promise<DbKeysResponse>;
+    "Db.entries": (params: DbListRequest) => Promise<DbEntriesResponse>;
+    "Db.clear": (params: DbNsRequest) => Promise<DbCountResponse>;
+    "Db.count": (params: DbNsRequest) => Promise<DbCountResponse>;
     "Fs.read_text": (params: FsPathRequest) => Promise<FsTextResponse>;
     "Fs.read_bytes": (params: FsPathRequest) => Promise<FsBytesResponse>;
     "Fs.write_text": (params: FsWriteTextRequest) => Promise<void>;
@@ -1192,6 +1329,10 @@ export interface BosonApi {
     "Fs.unwatch": (params: FsWatchIdRequest) => Promise<FsBoolResponse>;
     "Fs.scopes": () => Promise<FsScopesResponse>;
     "Fs.grant_from_dialog": (params: FsGrantRequest) => Promise<FsGrantResponse>;
+    "Http.fetch": (params: HttpFetchRequest) => Promise<HttpFetchResponse>;
+    "Http.download": (params: HttpDownloadRequest) => Promise<HttpDownloadStarted>;
+    "Http.cancel": (params: HttpIdRequest) => Promise<HttpBoolResponse>;
+    "Http.allowed_hosts": () => Promise<HttpHostsResponse>;
     "Log.write": (params: LogWriteRequest) => Promise<void>;
     "Menu.set_application_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
     "Menu.clear_application_menu": () => Promise<void>;
@@ -1317,5 +1458,7 @@ export interface BosonEvents {
     "updater:error": UpdateResultEvent;
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
+    "http:progress": HttpProgressEvent;
+    "http:done": HttpDoneEvent;
     "store:changed": StoreChangedEvent_DemoSettings;
 }
