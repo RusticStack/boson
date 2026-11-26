@@ -90,6 +90,82 @@ interface Ok {
   ok: boolean;
 }
 
+/** One navigator.requestMediaKeySystemAccess query (webview::DrmKeySystemQuery). */
+export interface DrmKeySystemQuery {
+  /** Stable name for the result, e.g. "playready_sl3000". */
+  id: string;
+  key_system: string;
+  /** Video robustness ("3000", "2000", "HW_SECURE_ALL", "SW_SECURE_DECODE"); empty = any. */
+  robustness?: string;
+  /** Audio robustness ("SW_SECURE_CRYPTO" for Widevine); empty = any. */
+  audio_robustness?: string;
+  /** true when "supported" means a hardware (protected media path) pipeline. */
+  hardware?: boolean;
+}
+
+export interface DrmCodec {
+  name: string;
+  /** e.g. 'video/mp4; codecs="avc1.640028"' */
+  content_type: string;
+}
+
+/** Every field is optional; omitted fields keep the native defaults. */
+export interface DrmProbeOptions {
+  key_systems?: DrmKeySystemQuery[];
+  video_codecs?: DrmCodec[];
+  /** Probed with a separate request after a video match; [] skips audio. */
+  audio_codecs?: DrmCodec[];
+  /** EME encryptionScheme values; default ['cenc', 'cbcs']; [] = unset. */
+  encryption_schemes?: string[];
+  /** Also call createMediaKeys() (initializes the CDM). Default true. */
+  create_media_keys?: boolean;
+  /** getStatusForPolicy({minHdcpVersion: '2.2'}) where available. Default true. */
+  check_hdcp?: boolean;
+  /** Per EME call, 1..60000. Default 10000. */
+  timeout_ms?: number;
+}
+
+export interface DrmCapability {
+  codec: string;
+  content_type: string;
+  encryption_scheme: string;
+  robustness: string;
+}
+
+export interface DrmKeySystemResult {
+  id: string;
+  key_system: string;
+  robustness: string;
+  hardware: boolean;
+  supported: boolean;
+  video: DrmCapability[];
+  audio: DrmCapability[];
+  init_data_types: string[];
+  session_types: string[];
+  persistent_state: string;
+  distinctive_identifier: string;
+  /** null when not attempted. */
+  media_keys_created?: boolean | null;
+  /** MediaKeyStatus for HDCP 2.2, 'unsupported', 'error: ...' or '' when not checked. */
+  hdcp_2_2: string;
+  error: string;
+  elapsed_ms: number;
+}
+
+export type DrmProtection = 'hardware' | 'software' | 'clearkey_only' | 'none';
+
+export interface DrmProbeResult {
+  secure_context: boolean;
+  eme_available: boolean;
+  origin: string;
+  user_agent: string;
+  key_systems: DrmKeySystemResult[];
+  protection: DrmProtection;
+  /** id of the first usable hardware result, else the first usable one; '' when none. */
+  best: string;
+  error: string;
+}
+
 /** Decodes a base64 payload returned by capture() / printToPdfData() into a Blob. */
 export function base64ToBlob(data: string, type: string): Blob {
   const binary = atob(data);
@@ -136,4 +212,11 @@ export const webview = {
     }),
   getProfile: () => call<ProfileInfo>('WebView.get_profile'),
   setColorScheme: (scheme: 'auto' | 'light' | 'dark') => call<Ok>('WebView.set_color_scheme', { scheme }),
+
+  /**
+   * EME capability probe of this page: PlayReady SL3000 / SL2000, Widevine HW_SECURE_ALL / SW_SECURE_DECODE and
+   * Clear Key with avc1 / hev1 / vp09 / av01. Resolves which key systems, codecs and encryption schemes the
+   * runtime grants and whether the CDM initializes; protection summarizes it ('hardware' = e.g. SL3000 active).
+   */
+  probeDrm: (options: DrmProbeOptions = {}) => call<DrmProbeResult>('WebView.probe_drm', options),
 };

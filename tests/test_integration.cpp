@@ -359,10 +359,50 @@ int main() {
     IT_CHECK(pump_until([&]() { return slept; }, std::chrono::seconds{10}));
     IT_CHECK(host->is_sleeping(b));
     IT_CHECK(b.is_suspended() == std::optional<bool>{true});
+    // Woken (shown) and hidden again before the next check: it must become eligible for sleep again instead of
+    // staying marked as sleeping forever.
+    b.set_visible(true);
+    IT_CHECK(!host->is_sleeping(b));
+    slept = false;
+    b.set_visible(false); // no message pumped in between, so no sleep check ran
+    IT_CHECK(!host->is_sleeping(b));
+    IT_CHECK(pump_until([&]() { return slept; }, std::chrono::seconds{10}));
+    IT_CHECK(host->is_sleeping(b));
+    IT_CHECK(b.is_suspended() == std::optional<bool>{true});
     host->set_sleep_policy(std::nullopt);
     b.set_visible(true);
     host->check_sleep_now();
     IT_CHECK(pump_until([&]() { return b.is_suspended() == std::optional<bool>{false}; }, std::chrono::seconds{5}));
+
+    // A minimized window hides its WebViews' controllers (page visibilityState "hidden") unless the WebView
+    // opts out with set_keep_visible_when_minimized, which media apps need (docs/COMPOSITION_DRM_SPIKE.md).
+    step("minimize: controller hidden unless keep_visible_when_minimized");
+    const auto controller_visible = [](boson::core::WebView& w) {
+        BOOL visible = FALSE;
+        return w.controller() != nullptr && SUCCEEDED(w.controller()->get_IsVisible(&visible)) && visible != FALSE;
+    };
+    const auto visibility_is = [&](std::string_view state) {
+        return pump_until([&]() { return eval(b, "document.visibilityState") == std::optional<std::string>{"\"" + std::string(state) + "\""}; },
+                          std::chrono::seconds{5});
+    };
+    IT_CHECK(controller_visible(b));
+    ShowWindow(window->hwnd(), SW_SHOWMINNOACTIVE);
+    IT_CHECK(pump_until([&]() { return window->is_minimized(); }, std::chrono::seconds{5}));
+    IT_CHECK(!controller_visible(b));
+    IT_CHECK(visibility_is("hidden"));
+    b.set_keep_visible_when_minimized(true);
+    IT_CHECK(b.keep_visible_when_minimized());
+    IT_CHECK(controller_visible(b));
+    IT_CHECK(visibility_is("visible"));
+    b.set_keep_visible_when_minimized(false);
+    IT_CHECK(!controller_visible(b));
+    b.set_keep_visible_when_minimized(true);
+    ShowWindow(window->hwnd(), SW_SHOWNOACTIVATE);
+    IT_CHECK(pump_until([&]() { return !window->is_minimized(); }, std::chrono::seconds{5}));
+    IT_CHECK(controller_visible(b));
+    b.set_keep_visible_when_minimized(false);
+    IT_CHECK(controller_visible(b));
+    IT_CHECK(visibility_is("visible"));
 
     // ---- #6: NewWindowRequested redirected into a new Boson WebView ----------------------------------
     step("NewWindowRequested -> new WebView");

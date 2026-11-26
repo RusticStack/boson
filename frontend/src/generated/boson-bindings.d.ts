@@ -599,6 +599,35 @@ export interface ShortcutListResponse {
     shortcuts: Array<ShortcutInfo>;
 }
 
+export interface DemoSettings {
+    theme: string;
+    search_engine: string;
+    tab_sleep_minutes: number;
+    hardware_acceleration: boolean;
+}
+
+export interface StoreChange {
+    changed: boolean;
+    changed_keys: Array<string>;
+    restart_required: boolean;
+    restart_keys: Array<string>;
+    revision: number;
+    saved: boolean;
+    source: string;
+    sender_webview: number;
+}
+
+export interface StoreInfo {
+    name: string;
+    path: string;
+    load_status: string;
+    revision: number;
+    dirty: boolean;
+    restart_keys: Array<string>;
+    pending_restart_keys: Array<string>;
+    read_only_keys: Array<string>;
+}
+
 export interface TaskbarProgressRequest {
     state: string;
     value?: number | null;
@@ -926,6 +955,65 @@ export interface ColorSchemeRequest {
     scheme: string;
 }
 
+export interface DrmCapability {
+    codec: string;
+    content_type: string;
+    encryption_scheme: string;
+    robustness: string;
+}
+
+export interface DrmKeySystemResult {
+    id: string;
+    key_system: string;
+    robustness: string;
+    hardware: boolean;
+    supported: boolean;
+    video: Array<DrmCapability>;
+    audio: Array<DrmCapability>;
+    init_data_types: Array<string>;
+    session_types: Array<string>;
+    persistent_state: string;
+    distinctive_identifier: string;
+    media_keys_created?: boolean | null;
+    hdcp_2_2: string;
+    error: string;
+    elapsed_ms: number;
+}
+
+export interface DrmProbeResult {
+    secure_context: boolean;
+    eme_available: boolean;
+    origin: string;
+    user_agent: string;
+    key_systems: Array<DrmKeySystemResult>;
+    protection: string;
+    best: string;
+    error: string;
+}
+
+export interface DrmKeySystemQuery {
+    id: string;
+    key_system: string;
+    robustness: string;
+    audio_robustness: string;
+    hardware: boolean;
+}
+
+export interface DrmCodec {
+    name: string;
+    content_type: string;
+}
+
+export interface DrmProbeRequest {
+    key_systems?: Array<DrmKeySystemQuery> | null;
+    video_codecs?: Array<DrmCodec> | null;
+    audio_codecs?: Array<DrmCodec> | null;
+    encryption_schemes?: Array<string> | null;
+    create_media_keys?: boolean | null;
+    check_hdcp?: boolean | null;
+    timeout_ms?: number | null;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -1033,12 +1121,22 @@ export interface FsChangeBatch {
     closed: boolean;
 }
 
+export interface StoreChangedEvent_DemoSettings {
+    store: string;
+    value: DemoSettings;
+    change: StoreChange;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
     "Boson.maximize_or_restore": () => Promise<BoolResponse>;
     "Boson.close": () => Promise<void>;
     "Boson.is_maximized": () => Promise<BoolResponse>;
+    "Boson.is_minimized": () => Promise<BoolResponse>;
+    "Boson.is_fullscreen": () => Promise<BoolResponse>;
+    "Boson.restore": () => Promise<void>;
+    "Boson.quit": () => Promise<void>;
     "Boson.set_title": (params: TitleRequest) => Promise<void>;
     "Boson.set_always_on_top": (params: ToggleRequest) => Promise<void>;
     "Boson.set_fullscreen": (params: ToggleRequest) => Promise<void>;
@@ -1141,6 +1239,11 @@ export interface BosonApi {
     "Shortcut.unregister_all": () => Promise<void>;
     "Shortcut.is_registered": (params: ShortcutAcceleratorRequest) => Promise<ShortcutBoolResponse>;
     "Shortcut.list": () => Promise<ShortcutListResponse>;
+    "Store.get": () => Promise<DemoSettings>;
+    "Store.set": (params: DemoSettings) => Promise<StoreChange>;
+    "Store.patch": (params: Partial<DemoSettings>) => Promise<StoreChange>;
+    "Store.reset": () => Promise<StoreChange>;
+    "Store.info": () => Promise<StoreInfo>;
     "Taskbar.set_progress": (params: TaskbarProgressRequest) => Promise<ShellResult>;
     "Taskbar.clear_progress": () => Promise<ShellResult>;
     "Taskbar.set_overlay": (params: TaskbarOverlayRequest) => Promise<ShellResult>;
@@ -1183,6 +1286,7 @@ export interface BosonApi {
     "WebView.clear_data": (params: ClearDataRequest) => Promise<OkResponse>;
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
+    "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
 }
 
 export interface BosonEvents {
@@ -1213,4 +1317,5 @@ export interface BosonEvents {
     "updater:error": UpdateResultEvent;
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
+    "store:changed": StoreChangedEvent_DemoSettings;
 }

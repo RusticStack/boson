@@ -132,6 +132,8 @@ public:
     [[nodiscard]] const std::shared_ptr<Environment>& environment() const noexcept { return m_env; }
     [[nodiscard]] const WebViewConfig& config() const noexcept { return m_config; }
     [[nodiscard]] HWND parent_hwnd() const noexcept { return m_parent; }
+    /// @brief The Boson container child window that hosts the controller (windowed hosting), else null.
+    [[nodiscard]] HWND container_hwnd() const noexcept { return m_container; }
     [[nodiscard]] HostingMode hosting() const noexcept { return m_config.hosting; }
     [[nodiscard]] WebViewEventHandlers& events() noexcept { return m_events; }
 
@@ -159,6 +161,11 @@ public:
     [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
     /// @brief Hides the controller while the parent is minimized without changing is_visible().
     void set_parent_minimized(bool minimized) noexcept;
+    /// @brief Keeps the controller visible (IsVisible = true) while the parent window is minimized.
+    /// For media apps: a hidden controller lets the runtime pause or stall background video
+    /// (see docs/COMPOSITION_DRM_SPIKE.md). The page keeps rendering while minimized.
+    void set_keep_visible_when_minimized(bool keep) noexcept;
+    [[nodiscard]] bool keep_visible_when_minimized() const noexcept { return m_keep_visible_when_minimized; }
     void bring_to_front() noexcept;
     void send_to_back() noexcept;
     bool focus() noexcept;
@@ -287,6 +294,7 @@ private:
     bool m_has_bounds = false;
     bool m_visible = true;
     bool m_parent_minimized = false;
+    bool m_keep_visible_when_minimized = false;
     bool m_closed = false;
     bool m_creating = false;
     bool m_playing_audio = false;

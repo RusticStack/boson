@@ -7,6 +7,16 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# MSVC's default Release flags carry /Ob2 and boson_core asks for /Ob3; both on one command line is warning D9025.
+string(REPLACE "/Ob2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+
+# Static CRT (/MT): executables no longer need the Visual C++ Redistributable (VCRUNTIME140.dll, MSVCP140.dll),
+# at the cost of a larger .exe. See docs/BENCHMARKS.md for both sizes.
+option(BOSON_STATIC_CRT "Link the MSVC runtime statically (/MT, /MTd)" OFF)
+if(BOSON_STATIC_CRT)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 include(CheckIPOSupported)
 check_ipo_supported(RESULT BOSON_IPO_SUPPORTED OUTPUT BOSON_IPO_ERROR)
 if(BOSON_IPO_SUPPORTED)
@@ -68,6 +78,7 @@ add_library(boson_core STATIC
     src/webview/profile.cpp
     src/webview/proxy.cpp
     src/webview/security_events.cpp
+    src/webview/drm.cpp
     src/desktop/hidden_window.cpp
     src/desktop/clipboard.cpp
     src/desktop/shell.cpp
@@ -83,6 +94,7 @@ add_library(boson_core STATIC
     src/security/credential_store.cpp
     src/security/fs_scope.cpp
     src/security/scoped_fs.cpp
+    src/store/store.cpp
     src/titlebar/theme.cpp
     src/titlebar/window_chrome.cpp
     src/titlebar/caption_accessibility.cpp
@@ -167,6 +179,14 @@ add_executable(boson_demo WIN32
 )
 target_link_libraries(boson_demo PRIVATE boson_core)
 
+# Benchmark assets shared verbatim with bench/wails_browser (boson_browser --bench).
+set(BOSON_BENCH_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bench/shared")
+file(READ "${BOSON_BENCH_SHARED_DIR}/bench_shell.js" BOSON_BENCH_SHELL_JS)
+file(READ "${BOSON_BENCH_SHARED_DIR}/bench_tab.html" BOSON_BENCH_TAB_HTML)
+configure_file(examples/browser/bench_assets.hpp.in "${CMAKE_BINARY_DIR}/generated/browser_bench_assets.hpp" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${BOSON_BENCH_SHARED_DIR}/bench_shell.js" "${BOSON_BENCH_SHARED_DIR}/bench_tab.html")
+
 add_executable(boson_browser WIN32
     examples/browser/main.cpp
 )
@@ -187,6 +207,13 @@ add_executable(boson_tsgen
     tools/tsgen/main.cpp
 )
 target_link_libraries(boson_tsgen PRIVATE boson_core)
+
+# Hardware-DRM verification spike (issue #15): plays public PlayReady test streams in windowed and composition
+# hosting and records playback / capture evidence. Manual tool: needs network, a GPU and a real display.
+add_executable(boson_drm_spike
+    tools/drm_spike/main.cpp
+)
+target_link_libraries(boson_drm_spike PRIVATE boson_core d3d11 dxgi dwmapi runtimeobject)
 
 # ECDSA P-256 key generation / update signing for boson::shipping::Updater.
 add_executable(boson_updater_sign
@@ -253,7 +280,14 @@ if(BOSON_BUN_EXECUTABLE)
                 --format=iife "--outfile=${BOSON_PORTING_SHIM_JS}"
         DEPENDS
             tests/js/compat_selftest.ts
+            tests/js/tsconfig.json
+            tests/js/fixtures/wails/bindings/events/index.ts
+            tests/js/fixtures/wails/bindings/github.com/wailsapp/wails/v3/internal/eventcreate.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/index.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/models.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/tabservice.ts
             frontend/src/boson.ts
+            frontend/src/generated/boson-method-params.ts
             frontend/src/compat/electron.ts
             frontend/src/compat/tauri.ts
             frontend/src/compat/wails.ts
@@ -262,6 +296,14 @@ if(BOSON_BUN_EXECUTABLE)
     add_custom_target(boson_porting_shim_js DEPENDS "${BOSON_PORTING_SHIM_JS}")
     add_dependencies(boson_porting_tests boson_porting_shim_js)
     target_compile_definitions(boson_porting_tests PRIVATE BOSON_PORTING_SHIM_JS="${BOSON_PORTING_SHIM_JS}")
+    # tsc --noEmit over the self-test and the real wails3 bindings fixture (strict, the @wailsio/runtime alias
+    # from tests/js/tsconfig.json). Needs frontend/node_modules (cd frontend && bun install).
+    set(BOSON_FRONTEND_TSC "${CMAKE_CURRENT_SOURCE_DIR}/frontend/node_modules/typescript/bin/tsc")
+    add_test(NAME boson_compat_typecheck
+        COMMAND "${BOSON_BUN_EXECUTABLE}" "${BOSON_FRONTEND_TSC}" -p "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/tsconfig.json")
+    if(NOT EXISTS "${BOSON_FRONTEND_TSC}")
+        set_tests_properties(boson_compat_typecheck PROPERTIES DISABLED TRUE)
+    endif()
 endif()
 # WebView features (print/PDF, capture, find, cookies, profiles, proxy, auth events). Unit checks always run;
 # the runtime part skips when no WebView2 runtime is installed. Opens one small non-activated window.
@@ -322,6 +364,14 @@ if(BOSON_SIGNTOOL AND BOSON_PACKAGE_DEMO)
             -AssetScript "${CMAKE_CURRENT_SOURCE_DIR}/cmake/msix/generate_assets.ps1")
     set_tests_properties(boson_signing_test PROPERTIES TIMEOUT 120 LABELS signing)
 endif()
+# Persistent settings store: missing / corrupt files, concurrent updates, a crash during save (child
+# process), the Store IPC controller and "store:changed" events. Headless; everything lives in a temp folder.
+add_executable(boson_store_tests
+    tests/test_store.cpp
+)
+target_link_libraries(boson_store_tests PRIVATE boson_core)
+add_test(NAME boson_store_tests COMMAND boson_store_tests)
+set_tests_properties(boson_store_tests PROPERTIES TIMEOUT 120)
 # File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
 # the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
 add_executable(boson_transfer_tests

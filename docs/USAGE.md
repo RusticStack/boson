@@ -193,8 +193,11 @@ std::string dts = boson::ipc::TsGenerator::generate<GreeterController>();
 Build and run `boson_tsgen`:
 
 ```powershell
-.\build\release\boson_tsgen.exe frontend\src\generated\boson-bindings.d.ts
+.\build\release\boson_tsgen.exe frontend\src\generated\boson-bindings.d.ts frontend\src\generated\boson-method-params.ts
 ```
+
+The second (optional) file lists each method's positional parameter names (the request struct's members in
+order); the Wails shim uses it so generated `Service.Method(a, b)` calls need no manual mapping (see PORTING.md).
 
 Then call your backend from TypeScript with full type safety:
 
@@ -251,7 +254,7 @@ cd frontend && bun run build && cd ..
 cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build/release'
 ```
 
-This produces a single statically linked executable (`WebView2LoaderStatic.lib` embedded, no `WebView2Loader.dll` needed) with LTO and debug symbols stripped.
+This produces a single executable (`WebView2LoaderStatic.lib` embedded, no `WebView2Loader.dll` needed) with LTO and debug symbols stripped: `boson_demo.exe` is 1,337,344 bytes with its frontend embedded (MSVC 14.52, measured 2026-11-26). It links the MSVC runtime dynamically, so target machines need the Visual C++ 2015-2026 redistributable (`MSVCP140.dll`, `MSVCP140_ATOMIC_WAIT.dll`, `VCRUNTIME140.dll`, `VCRUNTIME140_1.dll`). Configure with `-DBOSON_STATIC_CRT=ON` to link it statically (`/MT`) instead: 1,586,688 bytes, no runtime dependency beyond Windows itself.
 
 ---
 
@@ -264,7 +267,7 @@ boson::core::EnvironmentConfig cfg;
 cfg.user_data_folder = L"C:\\Users\\me\\AppData\\Local\\MyApp\\WebView2";
 cfg.additional_browser_arguments = {L"--autoplay-policy=no-user-gesture-required"};
 cfg.enable_features  = {L"msWebView2EnableDraggableRegions"};
-cfg.disable_features = {L"HardwareSecureDecryption"};
+cfg.disable_features = {L"msSmartScreenProtection"};   // see COMPOSITION_DRM_SPIKE.md for the DRM flags
 cfg.language = L"pt-PT";
 cfg.enable_tracking_prevention = true;      // optionals left unset keep the runtime default
 auto env = boson::core::Environment::create(cfg);
@@ -288,7 +291,7 @@ env->set_browser_process_exited_callback([](const boson::core::BrowserProcessExi
 
 - layout on `WM_SIZE` and `WM_DPICHANGED`;
 - `NotifyParentWindowPositionChanged` on every move;
-- hiding controllers while the window is minimized;
+- hiding controllers while the window is minimized (`WebView::set_keep_visible_when_minimized(true)` opts a WebView out);
 - z-order.
 
 ```cpp
@@ -307,7 +310,14 @@ host.set_layout([&](boson::core::WebViewHost&, const boson::core::LayoutContext&
 content.set_visible(false);   // hidden WebViews are throttled
 header.bring_to_front();
 host.destroy(content);        // safe from inside content's own callbacks
+content.set_keep_visible_when_minimized(true);   // media apps: keep playing while the window is minimized
 ```
+
+A hidden controller (`IsVisible = false`) is a background page to the runtime. On runtime 158, hidden PlayReady SL3000
+video is paused (the only PlayReady level tested this way), and its audio stops with it. Widevine video keeps playing. Media apps should
+call `set_keep_visible_when_minimized(true)` on the WebView that plays, and should not hide it with `set_visible(false)`
+while it plays; see [COMPOSITION_DRM_SPIKE.md](COMPOSITION_DRM_SPIKE.md#fullscreen-background-playback-and-screen-sharing).
+PlayReady audio is not reported by `IsDocumentPlayingAudio`, so `SleepPolicy` treats a hidden PlayReady tab as silent.
 
 In windowed mode each WebView lives inside a `BosonWebViewContainer` child HWND. The container is what provides z-order and bounds. Third-party content should set `settings.web_messages_enabled = false` and should not be attached to a `Bridge`.
 
@@ -391,7 +401,7 @@ For Windows 11 Snap Layouts on a custom maximize button, call `boson.registerMax
 
 `WebViewHost(window, env, HostingMode::Composition)` renders WebViews through `ICoreWebView2CompositionController` into a DirectComposition tree. WebViews can then overlap with real alpha (`set_opacity`, `set_corner_radius`, transparent backgrounds), which is how `boson_browser --composition` draws a translucent modal over a playing video. The host forwards mouse, wheel and cursor input and maps CSS app-regions to `WM_NCHITTEST`.
 
-Windowed hosting stays the default. Protected-content playback and MPO behaviour under composition hosting have not been verified; see [Composition & DRM spike](COMPOSITION_DRM_SPIKE.md).
+Windowed hosting stays the default. PlayReady SL3000 playback was measured in both hosting modes on one discrete-GPU machine (no iGPU machine was tested); see [Composition & DRM spike](COMPOSITION_DRM_SPIKE.md) for the results, the caveats and the `EnvironmentConfig` flags that matter. `webview::probe_drm` / `webview.probeDrm()` report which key system and robustness a WebView actually gets ([WebView features](WEBVIEW_FEATURES.md#drm-capability-probe-bosonwebviewdrmhpp)).
 
 ## 17. Lifecycle: Relaunch, Single Instance, Graceful Quit
 
@@ -416,7 +426,7 @@ boson::app::relaunch({.extra_args = {L"--screenshare"}, .remove_args = {L"--scre
 ## 18. Tests and Examples
 
 - `boson_tests`: unit tests (no WebView2 runtime needed).
-- `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
+- `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, minimize visibility and `set_keep_visible_when_minimized`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
 - `boson_browser [--composition] [--screenshare] [url...]` is a multi-tab browser built on all of the above. Set `BOSON_BROWSER_LOG=<file>` to capture its event log.
 
 ## 19. Platform Modules
@@ -430,9 +440,10 @@ Each module has its own guide with API, examples and an honest verification sect
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
 | Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
 | Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
+| Persistent settings (`Store<T>`) | [STORE.md](STORE.md) | `Store` (name configurable) | `store:changed` |
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
 | Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
 
-Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.
+Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`, `boson_store_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.

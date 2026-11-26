@@ -23,6 +23,7 @@
 #include <thread>
 #include <vector>
 
+#include <exec/async_scope.hpp>
 #include <glaze/glaze.hpp>
 
 #include <boson/boson.hpp>
@@ -177,6 +178,68 @@ void unit_tests() {
         cfg.in_private = true;
         WF_CHECK(wants_controller_options(cfg));
         WF_CHECK(create_controller_options(nullptr, cfg) == nullptr);
+    }
+
+    step("unit: DRM probe options / parsing / summary");
+    {
+        const DrmProbeOptions defaults;
+        WF_CHECK(defaults.key_systems.size() == 5);
+        WF_CHECK(defaults.video_codecs.size() == 4);
+        WF_CHECK(defaults.encryption_schemes.size() == 2);
+        WF_CHECK(defaults.key_systems.front().key_system == "com.microsoft.playready.recommendation.3000");
+        WF_CHECK(defaults.key_systems.front().hardware);
+        WF_CHECK(defaults.key_systems.back().key_system == "org.w3.clearkey");
+        const std::string script = build_drm_probe_script(defaults);
+        WF_CHECK(script.find("requestMediaKeySystemAccess") != std::string::npos);
+        WF_CHECK(script.find("\"com.widevine.alpha\"") != std::string::npos);
+        WF_CHECK(script.find("HW_SECURE_ALL") != std::string::npos);
+        WF_CHECK(script.find("avc1.640028") != std::string::npos);
+        WF_CHECK(script.back() == ')');
+
+        const auto parsed = parse_drm_probe_result(
+            R"({"secure_context":true,"eme_available":true,"origin":"boson://app","user_agent":"x","key_systems":[)"
+            R"({"id":"playready_sl3000","key_system":"com.microsoft.playready.recommendation.3000","robustness":"3000","hardware":true,)"
+            R"("supported":true,"video":[{"codec":"avc1","content_type":"video/mp4","encryption_scheme":"cenc","robustness":"3000"}],)"
+            R"("audio":[],"init_data_types":["cenc"],"session_types":["temporary"],"persistent_state":"optional",)"
+            R"("distinctive_identifier":"optional","media_keys_created":false,"hdcp_2_2":"","error":"createMediaKeys: x","elapsed_ms":3.5},)"
+            R"({"id":"clearkey","key_system":"org.w3.clearkey","robustness":"","hardware":false,"supported":true,"video":[],)"
+            R"("audio":[],"init_data_types":[],"session_types":[],"persistent_state":"","distinctive_identifier":"",)"
+            R"("media_keys_created":null,"hdcp_2_2":"","error":"","elapsed_ms":1,"future_field":7}],"protection":"","best":"","error":""})");
+        WF_CHECK(parsed.has_value());
+        if (parsed) {
+            WF_CHECK(parsed->key_systems.size() == 2);
+            WF_CHECK(parsed->key_systems[0].video.size() == 1 && parsed->key_systems[0].video[0].codec == "avc1");
+            WF_CHECK(parsed->key_systems[0].media_keys_created == std::optional<bool>{false});
+            WF_CHECK(!parsed->key_systems[1].media_keys_created.has_value());
+            // The hardware entry failed createMediaKeys, so only Clear Key is usable.
+            WF_CHECK(parsed->protection == "clearkey_only");
+            WF_CHECK(parsed->best == "clearkey");
+        }
+        WF_CHECK(!parse_drm_probe_result("not json").has_value());
+
+        DrmProbeResult r;
+        WF_CHECK(summarize(r) == DrmProtection::None);
+        r.key_systems.push_back(DrmKeySystemResult{.id = "pr", .key_system = "com.microsoft.playready.recommendation", .supported = true});
+        WF_CHECK(summarize(r) == DrmProtection::Software);
+        r.key_systems.push_back(DrmKeySystemResult{.id = "hw", .key_system = "com.widevine.alpha", .hardware = true, .supported = false});
+        WF_CHECK(summarize(r) == DrmProtection::Software);
+        r.key_systems.back().supported = true;
+        r.key_systems.back().media_keys_created = true;
+        WF_CHECK(summarize(r) == DrmProtection::Hardware);
+        WF_CHECK(to_string(DrmProtection::ClearKeyOnly) == "clearkey_only");
+
+        boson::ipc::DrmProbeRequest req;
+        WF_CHECK(!glz::read<glz::opts{.error_on_unknown_keys = false}>(req, std::string(R"({"key_systems":[{"id":"ck","key_system":"org.w3.clearkey"}],"timeout_ms":500})")));
+        const auto opts = boson::ipc::to_drm_probe_options(req);
+        WF_CHECK(opts.key_systems.size() == 1 && opts.key_systems[0].robustness.empty() && !opts.key_systems[0].hardware);
+        WF_CHECK(opts.video_codecs.size() == 4 && opts.timeout_ms == 500 && opts.create_media_keys);
+        bool threw = false;
+        try {
+            (void)boson::ipc::to_drm_probe_options(boson::ipc::DrmProbeRequest{.key_systems = std::vector<DrmKeySystemQuery>{}});
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        WF_CHECK(threw);
     }
 
     step("unit: proxy switches");
@@ -861,6 +924,124 @@ int main() {
         WF_CHECK(contains(wait_response(a, 12), "\"data\":\"/9j/")); // base64 of FF D8 FF
 
         controller.on_find_state = {};
+        bridge.reset();
+    }
+
+    // ---- DRM capability probe ----------------------------------------------------------------------------
+    step("DRM capability probe (probe_drm + WebView.probe_drm)");
+    {
+        const auto run_probe = [&](const boson::webview::DrmProbeOptions& options) {
+            std::optional<HRESULT> hr;
+            boson::webview::DrmProbeResult result;
+            WF_CHECK(boson::webview::probe_drm(a, options, [&](HRESULT h, boson::webview::DrmProbeResult r) {
+                hr = h;
+                result = std::move(r);
+            }));
+            WF_CHECK(pump_until([&]() { return hr.has_value(); }, std::chrono::seconds{90}));
+            WF_CHECK(hr.has_value() && SUCCEEDED(*hr));
+            return result;
+        };
+
+        const auto all = run_probe(boson::webview::DrmProbeOptions{});
+        std::cout << "  origin " << all.origin << ", secure=" << all.secure_context << ", eme=" << all.eme_available
+                  << ", protection=" << all.protection << ", best=" << all.best << '\n';
+        for (const auto& k : all.key_systems) {
+            std::string video;
+            for (const auto& c : k.video) {
+                video += c.codec + "/" + c.encryption_scheme + " ";
+            }
+            std::string audio;
+            for (const auto& c : k.audio) {
+                audio += c.codec + "/" + c.encryption_scheme + " ";
+            }
+            std::cout << "  " << k.id << " (" << k.key_system << ", '" << k.robustness << "'): supported=" << k.supported
+                      << " keys=" << (k.media_keys_created.has_value() ? (*k.media_keys_created ? "ok" : "FAILED") : "-")
+                      << " hdcp2.2=" << (k.hdcp_2_2.empty() ? "-" : k.hdcp_2_2) << " video=[" << video << "] audio=[" << audio
+                      << "]" << (k.error.empty() ? "" : " error=" + k.error) << " (" << static_cast<int>(k.elapsed_ms) << " ms)\n";
+        }
+        WF_CHECK(all.error.empty());
+        WF_CHECK(all.secure_context);
+        WF_CHECK(all.eme_available);
+        WF_CHECK(all.origin == "boson://app");
+        WF_CHECK(all.key_systems.size() == 5);
+        const boson::webview::DrmKeySystemResult* clear_key = nullptr;
+        for (const auto& k : all.key_systems) {
+            if (k.id == "clearkey") {
+                clear_key = &k;
+            }
+        }
+        WF_CHECK(clear_key != nullptr);
+        if (clear_key != nullptr) {
+            WF_CHECK(clear_key->supported);
+            WF_CHECK(clear_key->media_keys_created == std::optional<bool>{true});
+            WF_CHECK(clear_key->error.empty());
+            bool avc1_cenc = false;
+            for (const auto& c : clear_key->video) {
+                avc1_cenc = avc1_cenc || (c.codec == "avc1" && c.encryption_scheme == "cenc");
+            }
+            WF_CHECK(avc1_cenc);
+            WF_CHECK(!clear_key->audio.empty());
+            WF_CHECK(!clear_key->init_data_types.empty());
+        }
+        WF_CHECK(all.protection != "none");
+        WF_CHECK(!all.best.empty());
+
+        // A custom query list: Clear Key without encryptionScheme or audio, and a key system nobody implements.
+        boson::webview::DrmProbeOptions custom;
+        custom.key_systems = {
+            {.id = "ck", .key_system = "org.w3.clearkey"},
+            {.id = "bogus", .key_system = "com.example.nodrm", .hardware = true},
+        };
+        custom.video_codecs = {{.name = "vp09", .content_type = R"(video/webm; codecs="vp09.00.10.08")"}};
+        custom.audio_codecs.clear();
+        custom.encryption_schemes.clear();
+        custom.check_hdcp = false;
+        const auto few = run_probe(custom);
+        WF_CHECK(few.key_systems.size() == 2);
+        if (few.key_systems.size() == 2) {
+            WF_CHECK(few.key_systems[0].supported);
+            WF_CHECK(few.key_systems[0].video.size() == 1 && few.key_systems[0].video[0].codec == "vp09");
+            WF_CHECK(few.key_systems[0].video[0].encryption_scheme.empty());
+            WF_CHECK(few.key_systems[0].audio.empty());
+            WF_CHECK(few.key_systems[0].hdcp_2_2.empty());
+            WF_CHECK(!few.key_systems[1].supported);
+            WF_CHECK(few.key_systems[1].error.find("NotSupportedError") != std::string::npos);
+        }
+        WF_CHECK(few.protection == "clearkey_only");
+        WF_CHECK(few.best == "ck");
+
+        // The stdexec sender form.
+        std::optional<boson::webview::DrmProbeResult> via_sender;
+        bool sender_failed = false;
+        ::exec::async_scope scope;
+        scope.spawn(
+            boson::webview::probe_drm(a, custom) |
+            stdexec::then([&](boson::webview::DrmProbeResult r) noexcept { via_sender = std::move(r); }) |
+            stdexec::upon_error([&](std::exception_ptr) noexcept { sender_failed = true; }));
+        WF_CHECK(pump_until([&]() { return via_sender.has_value() || sender_failed; }, std::chrono::seconds{30}));
+        stdexec::sync_wait(scope.on_empty());
+        WF_CHECK(via_sender.has_value() && via_sender->best == "ck");
+
+        // The JS API over the bridge (WebView.probeDrm calls WebView.probe_drm).
+        boson::ipc::WebViewController controller(a, marshal);
+        boson::ipc::Router<boson::ipc::WebViewController> router(controller);
+        auto bridge = std::make_unique<boson::ipc::Bridge>(runner, marshal, router);
+        bridge->attach(a);
+        WF_CHECK(eval(a, "__call(21,'WebView.probe_drm',{}); 1").has_value());
+        const auto js_all = wait_response(a, 21, std::chrono::seconds{90});
+        WF_CHECK(contains(js_all, "\"status\":\"success\""));
+        WF_CHECK(contains(js_all, "\"key_system\":\"org.w3.clearkey\""));
+        WF_CHECK(contains(js_all, "\"key_system\":\"com.microsoft.playready.recommendation.3000\""));
+        WF_CHECK(contains(js_all, "\"protection\":\""));
+        WF_CHECK(eval(a, "__call(22,'WebView.probe_drm',{key_systems:[{id:'ck',key_system:'org.w3.clearkey'}],audio_codecs:[]}); 1").has_value());
+        const auto js_ck = wait_response(a, 22);
+        WF_CHECK(contains(js_ck, "\"robustness\":\"\"")); // a JS list replaces the defaults, it is not merged
+        WF_CHECK(contains(js_ck, "\"supported\":true"));
+        WF_CHECK(contains(js_ck, "\"protection\":\"clearkey_only\""));
+        WF_CHECK(contains(js_ck, "\"best\":\"ck\""));
+        WF_CHECK(eval(a, "__call(23,'WebView.probe_drm',{timeout_ms:0}); 1").has_value());
+        const auto js_bad = wait_response(a, 23);
+        WF_CHECK(contains(js_bad, "\"status\":\"error\"") && contains(js_bad, "timeout_ms"));
         bridge.reset();
     }
 

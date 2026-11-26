@@ -5,7 +5,8 @@
 // One shared Environment; a 40-DIP chrome WebView (shell_html.hpp) on top and one content WebView per tab.
 // window.open becomes a new tab, page fullscreen fills the window, hidden tabs sleep after five minutes,
 // a second launch forwards its URLs here, and "screenshare mode" re-creates the browser process with
-// hardware secure decryption disabled (in place, or by relaunching the executable).
+// --disable-direct-composition so DRM video can be shared in Discord/Teams (in place, or by relaunching the
+// executable). A minimized window keeps playing (WebView::set_keep_visible_when_minimized).
 #include <windows.h>
 #include <objbase.h>
 
@@ -13,7 +14,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <format>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -23,6 +26,7 @@
 
 #include <boson/boson.hpp>
 
+#include "bench_driver.hpp"
 #include "browser.hpp"
 #include "shell_html.hpp"
 
@@ -59,6 +63,7 @@ std::optional<std::span<const std::byte>> as_bytes(std::string_view s) {
 std::optional<std::span<const std::byte>> lookup(std::string_view path) {
     if (path == "/shell.html") return as_bytes(kShellHtml);
     if (path == "/newtab.html") return as_bytes(kNewTabHtml);
+    if (path == "/bench_tab.html") return as_bytes(bench::kTabHtml);
     return std::nullopt;
 }
 
@@ -99,14 +104,22 @@ struct Tab {
     TabInfo info;
 };
 
+/// @brief Optional per-tab observers (benchmark mode). A set message hook also enables web messages on tabs.
+struct TabHooks {
+    std::function<void(std::uint64_t id, bool ok)> navigated;
+    std::function<void(std::uint64_t id, std::string_view json)> message;
+    std::function<void(std::uint64_t id)> slept;
+};
+
 /// @brief UI-thread browser state: tabs, layout, fullscreen, modal and screenshare mode.
-class Browser {
+class Browser final : public bench::TabOps {
 public:
     Browser(core::Window& window, core::WebViewHost& host, exec::UiMarshal& marshal, bool screenshare)
         : m_window(window), m_host(host), m_marshal(marshal), m_screenshare(screenshare) {}
 
     void set_bridge(ipc::Bridge* bridge) { m_bridge = bridge; }
     void set_shell(core::WebView* shell) { m_shell = shell; }
+    void set_tab_hooks(TabHooks hooks) { m_hooks = std::move(hooks); }
     exec::UiMarshal& marshal() { return m_marshal; }
 
     void layout(const core::LayoutContext& ctx) {
@@ -127,7 +140,8 @@ public:
         core::WebViewConfig cfg;
         cfg.initial_url = deferral != nullptr ? std::string{} : normalize_url(url);
         cfg.start_visible = false;
-        cfg.settings.web_messages_enabled = false; // third-party content never reaches the bridge
+        // Third-party content never reaches the bridge; only the benchmark's own tab page talks to the host.
+        cfg.settings.web_messages_enabled = static_cast<bool>(m_hooks.message);
         cfg.settings.non_client_region_support_enabled = false;
         std::shared_ptr<core::NewWindowDeferral> pending;
         if (deferral != nullptr) {
@@ -136,6 +150,9 @@ public:
         // on_ready fires asynchronously (and again after Environment::recreate), so it is bound after
         // create() returns, when the WebView's id is known.
         core::WebView& webview = m_host.create(std::move(cfg));
+        if (m_hooks.message) {
+            webview.set_message_callback([this, id = webview.id()](std::string_view json, std::string_view) { m_hooks.message(id, json); });
+        }
         webview.set_ready_callback([this, pending, id = webview.id()]() mutable {
             if (pending && pending->pending()) {
                 if (Tab* tab = find(id)) {
@@ -224,6 +241,7 @@ public:
             tab->info.sleeping = true;
             log("[tab {}] sleeping (hidden, no audio)", tab->info.id);
             publish();
+            if (m_hooks.slept) m_hooks.slept(tab->info.id);
         }
     }
 
@@ -269,10 +287,18 @@ public:
         app::relaunch(std::move(options), {m_host.environment()});
     }
 
+    /// Screen sharing (Discord, Teams, OBS) of DRM video. Measured on runtime 158 (docs/COMPOSITION_DRM_SPIKE.md):
+    /// - PlayReady video (SL3000 and SL2000) is never capturable.
+    /// - Widevine is drawn into a display-only DirectComposition overlay that capture skips.
+    /// --disable-direct-composition fixes both: PlayReady becomes unavailable, so sites fall back to Widevine,
+    /// and Widevine is composited into the normal swap chain, where DXGI and Windows.Graphics.Capture see it.
+    /// The GPU stays on (unlike --disable-gpu).
     static void apply_screenshare(core::EnvironmentConfig& cfg, bool enabled) {
-        auto& disabled = cfg.disable_features;
-        std::erase(disabled, std::wstring{L"HardwareSecureDecryption"});
-        if (enabled) disabled.emplace_back(L"HardwareSecureDecryption");
+        auto& args = cfg.additional_browser_arguments;
+        std::erase(args, std::wstring{L"--disable-direct-composition"});
+        if (enabled) {
+            args.emplace_back(L"--disable-direct-composition");
+        }
     }
 
     [[nodiscard]] BrowserState state() const {
@@ -311,6 +337,17 @@ public:
 
     [[nodiscard]] bool screenshare() const noexcept { return m_screenshare; }
 
+    // bench::TabOps
+    core::WebView& bench_open_tab(std::string url) override { return open_tab(std::move(url), true); }
+    void bench_activate_tab(std::uint64_t id) override { activate_tab(id); }
+    void bench_close_tab(std::uint64_t id) override { close_tab(id); }
+    [[nodiscard]] std::vector<std::uint64_t> bench_tab_ids() const override {
+        std::vector<std::uint64_t> ids;
+        for (const Tab& tab : m_tabs) ids.push_back(tab.info.id);
+        return ids;
+    }
+    [[nodiscard]] std::uint64_t bench_active_tab() const override { return m_active; }
+
 private:
     Tab* find(std::uint64_t id) {
         const auto it = std::ranges::find_if(m_tabs, [id](const Tab& t) { return t.info.id == id; });
@@ -336,6 +373,9 @@ private:
 
     void wire_events(core::WebView& webview) {
         const std::uint64_t id = webview.id();
+        // A minimized browser keeps playing media: with the controller hidden, the runtime pauses
+        // hardware-DRM (PlayReady) video, and its audio with it. Hidden tabs are still hidden by set_visible.
+        webview.set_keep_visible_when_minimized(true);
         auto& ev = webview.events();
         ev.on_title_changed = [this, id](std::string_view title) {
             if (Tab* t = find(id)) { t->info.title = title; publish(); }
@@ -355,6 +395,7 @@ private:
         ev.on_navigation_completed = [this, id](const core::NavigationCompletedEvent& e) {
             log("[tab {}] navigation completed ok={} web_error={} http={}", id, e.is_success, e.web_error_status, e.http_status_code);
             if (Tab* t = find(id)) { t->info.loading = false; publish(); }
+            if (m_hooks.navigated) m_hooks.navigated(id, e.is_success);
         };
         ev.on_favicon_changed = [id](std::string_view uri) { log("[tab {}] favicon {}", id, uri); };
         ev.on_new_window_requested = [this, id](core::NewWindowRequest& req) {
@@ -404,6 +445,7 @@ private:
     bool m_fullscreen = false;
     bool m_modal = false;
     bool m_screenshare = false;
+    TabHooks m_hooks;
 };
 
 BrowserState BrowserController::get_state() const {
@@ -482,15 +524,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
     const ComApartmentGuard com_guard;
     if (!com_guard.ok()) return 1;
 
-    browser::Browser* browser_ptr = nullptr;
-    const auto instance_guard = app::single_instance(L"Boson.Browser", [&browser_ptr](std::vector<std::wstring> args, std::wstring /*cwd*/) {
-        log("[app] second instance forwarded {} argument(s)", args.size());
-        if (browser_ptr != nullptr) browser_ptr->open_forwarded(args);
-    });
-    if (!instance_guard) return 0;
-
     const std::vector<std::wstring> args = app::command_line_args();
     const auto has = [&args](std::wstring_view flag) { return std::ranges::find(args, flag) != args.end(); };
+
+    // Benchmark mode (boson_bench --scenario browser): scripted scenario, no single-instance forwarding.
+    std::optional<std::filesystem::path> bench_dir;
+    if (has(L"--bench")) {
+        wchar_t dir[MAX_PATH]{};
+        if (GetEnvironmentVariableW(L"BOSON_BENCH_DIR", dir, MAX_PATH) > 0) {
+            bench_dir = std::filesystem::path{dir};
+        } else {
+            log("[bench] --bench needs BOSON_BENCH_DIR (run it through boson_bench --scenario browser)");
+        }
+    }
+
+    browser::Browser* browser_ptr = nullptr;
+    std::unique_ptr<app::SingleInstance> instance_guard;
+    if (!bench_dir) {
+        instance_guard = app::single_instance(L"Boson.Browser", [&browser_ptr](std::vector<std::wstring> forwarded, std::wstring /*cwd*/) {
+            log("[app] second instance forwarded {} argument(s)", forwarded.size());
+            if (browser_ptr != nullptr) browser_ptr->open_forwarded(forwarded);
+        });
+        if (!instance_guard) return 0;
+    }
+
     const bool composition = has(L"--composition");
     const bool screenshare = has(L"--screenshare");
     std::vector<std::string> start_urls;
@@ -542,16 +599,33 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
     shell_cfg.settings.non_client_region_support_enabled = true;
     shell_cfg.settings.default_context_menus_enabled = false;
     shell_cfg.settings.zoom_control_enabled = false;
+    if (bench_dir) browser::bench::Driver::configure_shell(shell_cfg);
     core::WebView& shell = host.create(std::move(shell_cfg));
     host.set_sleep_exempt(shell, true);
     browser.set_shell(&shell);
 
     ipc::SystemController system_controller(window, shell, marshal);
     browser::BrowserController browser_controller(browser);
-    ipc::Router<ipc::SystemController, browser::BrowserController> router(system_controller, browser_controller);
+    browser::bench::BenchController bench_controller(marshal);
+    ipc::Router<ipc::SystemController, browser::BrowserController, browser::bench::BenchController> router(
+        system_controller, browser_controller, bench_controller);
     ipc::Bridge bridge(runner, marshal, router);
     bridge.attach(shell);
     browser.set_bridge(&bridge);
+
+    std::optional<browser::bench::Driver> bench_driver;
+    if (bench_dir) {
+        browser::bench::Driver& driver = bench_driver.emplace(*bench_dir, window, host, browser);
+        driver.set_bridge(&bridge);
+        bench_controller.set_driver(&driver);
+        bench_controller.set_bridge(&bridge);
+        browser.set_tab_hooks(browser::TabHooks{
+            .navigated = [&driver](std::uint64_t id, bool ok) { driver.on_tab_navigated(id, ok); },
+            .message = [&driver](std::uint64_t id, std::string_view json) { driver.on_tab_message(id, json); },
+            .slept = [&driver](std::uint64_t id) { driver.on_tab_slept(id); },
+        });
+        start_urls = {driver.next_tab_url()};
+    }
 
     window.on(core::WindowEventKind::MaximizeButtonHover, [&bridge](core::WindowEvent& e) {
         bridge.emit("window:maximize-button", browser::MaxButtonEvent{.hovered = e.flag});

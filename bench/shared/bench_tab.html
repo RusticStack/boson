@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Bench tab</title>
+<!-- Browser benchmark tab content, shared verbatim by Boson (boson://app/bench_tab.html) and Wails (/bench_tab.html).
+     Replies to a "mark" request after two animation frames, i.e. once the tab is actually producing frames. -->
+<style>
+html,body{margin:0;background:#202124;color:#e8eaed;font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+header{padding:20px 28px;background:linear-gradient(90deg,#2b2d31,#1f2933);border-bottom:1px solid #333}
+h1{margin:0;font-size:22px}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;padding:20px 28px}
+.card{background:#2b2d31;border-radius:10px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.card h2{margin:0 0 6px;font-size:15px}.card p{margin:0;color:#bdc1c6}
+</style></head>
+<body><header><h1>Benchmark tab <span id="n"></span></h1><div>Static page; identical in both frameworks.</div></header><main id="grid"></main>
+<script>
+(() => {
+  const tab = Number(new URLSearchParams(location.search).get('tab') || 0);
+  document.getElementById('n').textContent = '#' + tab;
+  document.title = 'Tab ' + tab;
+  const grid = document.getElementById('grid');
+  for (let i = 1; i <= 48; i++) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<h2>Card ' + i + '</h2><p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore.</p>';
+    grid.appendChild(card);
+  }
+  const boson = location.protocol === 'boson:';
+  const wails = boson ? null : import('/wails/runtime.js');
+  const reply = (seq) => {
+    if (boson) window.chrome.webview.postMessage({ bench: 'mark', tab, seq });
+    else wails.then((rt) => rt.Call.ByName('main.BenchService.Mark', tab, seq));
+  };
+  window.__benchMark = (seq) => requestAnimationFrame(() => requestAnimationFrame(() => reply(seq)));
+  if (boson) {
+    window.chrome.webview.addEventListener('message', (e) => {
+      const d = e.data;
+      if (d && d.bench === 'mark') window.__benchMark(d.seq);
+    });
+  }
+})();
+</script></body></html>

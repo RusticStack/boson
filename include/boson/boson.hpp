@@ -36,6 +36,7 @@
 
 #include <boson/webview/capture.hpp>
 #include <boson/webview/cookies.hpp>
+#include <boson/webview/drm.hpp>
 #include <boson/webview/find.hpp>
 #include <boson/webview/print.hpp>
 #include <boson/webview/profile.hpp>
@@ -73,6 +74,7 @@
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
 #include <boson/ipc/controllers/shortcut_controller.hpp>
+#include <boson/ipc/controllers/store_controller.hpp>
 #include <boson/titlebar/caption_accessibility.hpp>
 #include <boson/titlebar/caption_buttons.hpp>
 #include <boson/titlebar/theme.hpp>
@@ -94,6 +96,7 @@
 #include <boson/security/safe_storage.hpp>
 #include <boson/security/scoped_fs.hpp>
 #include <boson/security/web_security.hpp>
+#include <boson/store/store.hpp>
 #include <boson/shipping/authenticode.hpp>
 #include <boson/shipping/crash_reporter.hpp>
 #include <boson/shipping/crypto.hpp>

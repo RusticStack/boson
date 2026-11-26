@@ -505,6 +505,11 @@ void WebView::set_parent_minimized(bool minimized) noexcept {
     apply_visibility();
 }
 
+void WebView::set_keep_visible_when_minimized(bool keep) noexcept {
+    m_keep_visible_when_minimized = keep;
+    apply_visibility();
+}
+
 void WebView::apply_visibility() noexcept {
     if (m_container != nullptr) {
         ShowWindow(m_container, m_visible ? SW_SHOWNA : SW_HIDE);
@@ -514,7 +519,7 @@ void WebView::apply_visibility() noexcept {
         m_config.composition->commit();
     }
     if (m_controller != nullptr) {
-        BOSON_HR_CHECK(m_controller->put_IsVisible((m_visible && !m_parent_minimized) ? TRUE : FALSE));
+        BOSON_HR_CHECK(m_controller->put_IsVisible((m_visible && (!m_parent_minimized || m_keep_visible_when_minimized)) ? TRUE : FALSE));
     }
 }
 
