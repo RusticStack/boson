@@ -63,4 +63,19 @@ struct RpcResponse {
     return out;
 }
 
+/// @brief Serializes a backend-to-frontend event: {"type":"event","event":<name>,"data":<data_json>}.
+/// The "type" key keeps events apart from RPC responses (which never carry it).
+[[nodiscard]] inline std::string make_event_envelope(std::string_view event, std::string_view data_json) {
+    std::string name_json;
+    [[maybe_unused]] const auto ec = glz::write_json(event, name_json);
+    std::string out;
+    out.reserve(32 + name_json.size() + data_json.size());
+    out.append(R"({"type":"event","event":)");
+    out.append(name_json);
+    out.append(R"(,"data":)");
+    out.append(data_json.empty() ? std::string_view{"null"} : data_json);
+    out.push_back('}');
+    return out;
+}
+
 }  // namespace boson::ipc

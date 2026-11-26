@@ -28,6 +28,16 @@ public:
     /// @brief Schedules work on the background thread pool and enqueues its JSON result to UiMarshal.
     void dispatch(std::uint64_t callback_id, std::function<std::string()> work);
 
+    /// @brief Same as dispatch(), but hands the JSON result to on_complete on the UI thread instead of the
+    /// UiMarshal delivery callback, so each response can be routed to the WebView that sent the request.
+    void dispatch(
+        std::uint64_t callback_id,
+        std::function<std::string()> work,
+        std::function<void(std::string)> on_complete);
+
+    /// @brief Runs fire-and-forget background work (no JSON envelope), e.g. a poller that emits events.
+    void spawn(std::function<void()> work);
+
 private:
     Scheduler& m_scheduler;
     UiMarshal& m_marshal;

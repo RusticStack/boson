@@ -7,9 +7,11 @@
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../../examples/demo/app_controller.hpp"
+#include "../../examples/demo/demo_events.hpp"
 
 int main(int argc, char** argv) {
-    const std::string dts = boson::ipc::TsGenerator::generate<
+    const std::string dts = boson::ipc::TsGenerator::generate_with_events<
+        boson::demo::DemoEvents,
         boson::ipc::SystemController,
         boson::demo::AppController>();
 

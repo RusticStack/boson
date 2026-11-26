@@ -11,6 +11,7 @@
 #include <glaze/glaze.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <cctype>
 #include <stdexcept>
 #include <string>
@@ -60,6 +61,24 @@ struct FileDialogResponse {
 
 struct BoolResponse {
     bool value = false;
+};
+
+struct ZoomRequest {
+    double factor = 1.0;
+};
+
+struct SizeRequest {
+    int width = 0;
+    int height = 0;
+};
+
+/// @brief A DOM rect in CSS pixels relative to the calling WebView (getBoundingClientRect()).
+struct ElementRectRequest {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    bool visible = true;
 };
 
 struct BackdropStatusResponse {
@@ -227,6 +246,55 @@ public:
         });
     }
 
+    void go_back() const {
+        m_marshal.post_task([this]() { m_webview.go_back(); });
+    }
+
+    void go_forward() const {
+        m_marshal.post_task([this]() { m_webview.go_forward(); });
+    }
+
+    void reload() const {
+        m_marshal.post_task([this]() { m_webview.reload(); });
+    }
+
+    void open_devtools() const {
+        m_marshal.post_task([this]() { m_webview.open_devtools(); });
+    }
+
+    void set_zoom(ZoomRequest req) const {
+        m_marshal.post_task([this, factor = req.factor]() { m_webview.set_zoom_factor(factor); });
+    }
+
+    void set_min_size(SizeRequest req) const {
+        m_marshal.post_task([this, req]() { m_window.set_min_size(req.width, req.height); });
+    }
+
+    void center() const {
+        m_marshal.post_task([this]() { m_window.center(); });
+    }
+
+    /// @brief Marks a DOM element as the caption maximize button so Windows 11 Snap Layouts appears when
+    /// hovering it. The rect is mapped from CSS pixels of this WebView to window client pixels.
+    void set_maximize_button_rect(ElementRectRequest req) const {
+        m_marshal.post_task([this, req]() {
+            if (!req.visible || req.width <= 0.0 || req.height <= 0.0) {
+                m_window.set_maximize_button_rect(std::nullopt);
+                return;
+            }
+            const double scale = static_cast<double>(m_window.dpi()) / USER_DEFAULT_SCREEN_DPI *
+                                 m_webview.zoom_factor().value_or(1.0);
+            const RECT origin = m_webview.bounds();
+            const auto px = [scale](double css) { return static_cast<LONG>(css * scale + 0.5); };
+            m_window.set_maximize_button_rect(RECT{
+                origin.left + px(req.x),
+                origin.top + px(req.y),
+                origin.left + px(req.x + req.width),
+                origin.top + px(req.y + req.height),
+            });
+        });
+    }
+
 private:
     core::Window& m_window;
     core::WebView& m_webview;
@@ -253,5 +321,13 @@ struct glz::meta<boson::ipc::SystemController> {
         "set_opacity", &T::set_opacity,
         "notify", &T::notify,
         "open_file_dialog", &T::open_file_dialog,
-        "save_file_dialog", &T::save_file_dialog);
+        "save_file_dialog", &T::save_file_dialog,
+        "go_back", &T::go_back,
+        "go_forward", &T::go_forward,
+        "reload", &T::reload,
+        "open_devtools", &T::open_devtools,
+        "set_zoom", &T::set_zoom,
+        "set_min_size", &T::set_min_size,
+        "center", &T::center,
+        "set_maximize_button_rect", &T::set_maximize_button_rect);
 };

@@ -229,6 +229,24 @@ public:
         });
     }
 
+    /// @brief Like dispatch_async(), but delivers the response to reply on the UI thread.
+    void dispatch_async(
+        std::string_view raw_json,
+        exec::TaskRunner& runner,
+        std::function<void(std::string)> reply) {
+        RpcRequest header{};
+        const auto parse_ec = glz::read<glz::opts{.error_on_unknown_keys = false}>(header, raw_json);
+        const std::uint64_t request_id = parse_ec ? 0 : header.id;
+
+        std::string payload{raw_json};
+        runner.dispatch(
+            request_id,
+            [this, payload = std::move(payload)]() mutable -> std::string {
+                return this->dispatch_sync(payload);
+            },
+            std::move(reply));
+    }
+
 private:
     template <typename Controller>
     static void dispatch_to_controller(

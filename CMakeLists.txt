@@ -41,12 +41,21 @@ FetchContent_MakeAvailable(stdexec)
 add_library(boson_core STATIC
     src/core/window.cpp
     src/core/webview.cpp
+    src/core/webview_events.cpp
+    src/core/environment.cpp
+    src/core/composition.cpp
+    src/core/ui_timer.cpp
+    src/core/webview_host.cpp
     src/core/protocol.cpp
     src/exec/task_runner.cpp
     src/ipc/bridge.cpp
+    src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
 )
+
+# Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
+target_sources(boson_core INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/boson.manifest")
 
 target_include_directories(boson_core
     PUBLIC
@@ -84,6 +93,7 @@ target_link_libraries(boson_core
         oleaut32
         shlwapi
         dwmapi
+        dcomp
         user32
         gdi32
         shell32
@@ -93,6 +103,11 @@ add_executable(boson_demo WIN32
     examples/demo/main.cpp
 )
 target_link_libraries(boson_demo PRIVATE boson_core)
+
+add_executable(boson_browser WIN32
+    examples/browser/main.cpp
+)
+target_link_libraries(boson_browser PRIVATE boson_core)
 
 add_executable(boson_tsgen
     tools/tsgen/main.cpp
@@ -105,3 +120,11 @@ add_executable(boson_tests
 )
 target_link_libraries(boson_tests PRIVATE boson_core)
 add_test(NAME boson_tests COMMAND boson_tests)
+
+# Drives the installed WebView2 runtime (skips when none is installed). Opens two small windows.
+add_executable(boson_integration_tests
+    tests/test_integration.cpp
+)
+target_link_libraries(boson_integration_tests PRIVATE boson_core)
+add_test(NAME boson_integration_tests COMMAND boson_integration_tests)
+set_tests_properties(boson_integration_tests PROPERTIES LABELS integration TIMEOUT 180)

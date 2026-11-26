@@ -2,6 +2,8 @@
 #include <objbase.h>
 #include <shellapi.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -11,6 +13,7 @@
 #include <boson/boson.hpp>
 
 #include "app_controller.hpp"
+#include "demo_events.hpp"
 
 namespace {
 
@@ -64,15 +67,9 @@ struct LaunchOptions {
     LaunchOptions opts;
     opts.dev_url = get_env_utf8(L"BOSON_DEV_URL");
 
-    int argc = 0;
-    LPWSTR* raw_argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
-    if (!raw_argv) {
-        return opts;
-    }
-    const auto argv_guard = std::unique_ptr<LPWSTR, decltype(&::LocalFree)>(raw_argv, &::LocalFree);
-
-    for (int i = 1; i < argc; ++i) {
-        const std::wstring_view arg{argv_guard.get()[i]};
+    const std::vector<std::wstring> args = boson::app::command_line_args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::wstring_view arg{args[i]};
         if (arg == L"--native-frame") {
             opts.headless_titlebar = false;
         } else if (arg == L"--borderless") {
@@ -80,8 +77,8 @@ struct LaunchOptions {
         } else if (arg.starts_with(L"--backdrop=")) {
             opts.backdrop = boson::ipc::parse_backdrop_type(boson::core::wide_to_utf8(arg.substr(11)));
         } else if (arg == L"--dev") {
-            if (i + 1 < argc && argv_guard.get()[i + 1][0] != L'-') {
-                opts.dev_url = boson::core::wide_to_utf8(argv_guard.get()[++i]);
+            if (i + 1 < args.size() && !args[i + 1].starts_with(L"-")) {
+                opts.dev_url = boson::core::wide_to_utf8(args[++i]);
             } else if (!opts.dev_url.has_value()) {
                 opts.dev_url = "http://localhost:5173";
             }
@@ -99,9 +96,24 @@ int WINAPI wWinMain(
     HINSTANCE /*prev_instance*/,
     PWSTR /*cmd_line*/,
     int show_cmd) {
+    // A relaunch() must not race the previous process for the WebView2 user data folder.
+    boson::app::wait_for_previous_instance();
+
     const ComApartmentGuard com_guard;
     if (!com_guard.ok()) {
         return 1;
+    }
+
+    boson::core::Window* window_ptr = nullptr;
+    const auto instance_guard = boson::app::single_instance(
+        L"Boson.Demo",
+        [&window_ptr](std::vector<std::wstring> /*args*/, std::wstring /*cwd*/) {
+            if (window_ptr != nullptr) {
+                window_ptr->focus();
+            }
+        });
+    if (!instance_guard) {
+        return 0; // forwarded to the running instance
     }
 
     const LaunchOptions opts = parse_launch_options();
@@ -110,6 +122,8 @@ int WINAPI wWinMain(
     window_cfg.title = L"Boson — C++26 WebView2";
     window_cfg.width = 1220;
     window_cfg.height = 840;
+    window_cfg.min_width = 760;
+    window_cfg.min_height = 520;
     window_cfg.headless_titlebar = opts.headless_titlebar;
     window_cfg.backdrop = opts.backdrop;
     window_cfg.dark_mode = true;
@@ -118,6 +132,7 @@ int WINAPI wWinMain(
     if (!window.create(instance, show_cmd)) {
         return 1;
     }
+    window_ptr = &window;
 
     boson::exec::Scheduler scheduler;
     boson::exec::UiMarshal marshal([&window]() {
@@ -129,12 +144,23 @@ int WINAPI wWinMain(
 
     boson::exec::TaskRunner runner(scheduler, marshal);
 
+    boson::core::EnvironmentConfig env_cfg;
+    env_cfg.enable_draggable_regions = true; // CSS app-region on runtimes without ICoreWebView2Settings9
+    const std::shared_ptr<boson::core::Environment> environment = boson::core::Environment::create(env_cfg);
+
+    boson::core::WebViewHost host(window, environment);
+
     boson::core::WebViewConfig webview_cfg;
     webview_cfg.dev_url = opts.dev_url;
     webview_cfg.initial_url = "boson://app/index.html";
     webview_cfg.transparent_background = window.is_transparent_backdrop();
+    webview_cfg.settings.non_client_region_support_enabled = true;
 
-    boson::core::WebView webview(std::move(webview_cfg));
+    boson::core::WebView& webview = host.create(
+        std::move(webview_cfg),
+        boson::core::WebViewCallbacks{
+            .asset_lookup = [](std::string_view path) { return boson::assets::AssetRegistry::find(path); },
+        });
 
     boson::ipc::SystemController system_controller(window, webview, marshal);
     boson::demo::AppController app_controller;
@@ -142,26 +168,69 @@ int WINAPI wWinMain(
         system_controller,
         app_controller);
 
-    boson::ipc::Bridge bridge(webview, runner, marshal, router);
+    boson::ipc::Bridge bridge(runner, marshal, router);
+    bridge.attach(webview);
 
-    window.set_resize_callback([&webview](int width, int height) {
-        webview.resize(width, height);
+    // ---- Backend -> frontend events ---------------------------------------------------------------------
+    const auto emit_window_state = [&window, &bridge](bool focused) {
+        bridge.emit("window:state", boson::demo::WindowStateEvent{
+            .maximized = window.is_maximized(),
+            .minimized = window.is_minimized(),
+            .focused = focused,
+            .dpi = window.dpi(),
+        });
+    };
+    using boson::core::WindowEventKind;
+    window.on(WindowEventKind::Maximize, [&](boson::core::WindowEvent&) { emit_window_state(true); });
+    window.on(WindowEventKind::Restore, [&](boson::core::WindowEvent&) { emit_window_state(true); });
+    window.on(WindowEventKind::Minimize, [&](boson::core::WindowEvent&) { emit_window_state(false); });
+    window.on(WindowEventKind::Focus, [&](boson::core::WindowEvent&) { emit_window_state(true); });
+    window.on(WindowEventKind::Blur, [&](boson::core::WindowEvent&) { emit_window_state(false); });
+    window.on(WindowEventKind::DpiChanged, [&](boson::core::WindowEvent&) { emit_window_state(true); });
+
+    bool max_hovered = false;
+    bool max_pressed = false;
+    const auto emit_max_button = [&]() {
+        bridge.emit("window:maximize-button", boson::demo::MaximizeButtonEvent{.hovered = max_hovered, .pressed = max_pressed});
+    };
+    window.on(WindowEventKind::MaximizeButtonHover, [&](boson::core::WindowEvent& e) {
+        max_hovered = e.flag;
+        emit_max_button();
+    });
+    window.on(WindowEventKind::MaximizeButtonPress, [&](boson::core::WindowEvent& e) {
+        max_pressed = e.flag;
+        emit_max_button();
     });
 
-    const bool initialized = webview.initialize(
-        window.hwnd(),
-        [](std::string_view path) {
-            return boson::assets::AssetRegistry::find(path);
+    // A UI timer kicks a background task each second; the task emits from its worker thread.
+    std::atomic<std::uint64_t> tick_seq{0};
+    boson::core::UiTimer tick_timer;
+    tick_timer.start(
+        std::chrono::seconds{1},
+        [&runner, &bridge, &tick_seq]() {
+            runner.spawn([&bridge, &tick_seq]() {
+                const auto now = std::chrono::steady_clock::now().time_since_epoch();
+                bridge.emit("app:tick", boson::demo::TickEvent{
+                    .seq = tick_seq.fetch_add(1, std::memory_order_relaxed) + 1,
+                    .timestamp_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count(),
+                    .worker_thread_id = static_cast<std::uint32_t>(::GetCurrentThreadId()),
+                });
+            });
         },
-        bridge.make_message_callback(),
-        [&window, &webview]() {
-            const RECT rc = window.client_rect();
-            webview.resize(rc.right - rc.left, rc.bottom - rc.top);
-        });
+        true);
 
-    if (!initialized) {
-        return 1;
-    }
+    // Graceful shutdown: close controllers and wait for the browser process before WM_QUIT.
+    bool quitting = false;
+    window.on(WindowEventKind::CloseRequested, [&](boson::core::WindowEvent& e) {
+        if (quitting) {
+            return;
+        }
+        quitting = true;
+        e.cancel = true;
+        tick_timer.stop();
+        window.hide();
+        boson::app::quit({environment});
+    });
 
-    return window.run_message_loop();
+    return boson::core::Window::run_message_loop();
 }
