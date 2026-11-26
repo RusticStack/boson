@@ -445,6 +445,7 @@ Each module has its own guide with API, examples and an honest verification sect
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
+| Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / system preferences, session end, close-to-tray | [NATIVE.md](NATIVE.md) | `Dialog`, `Permissions`, `Zoom`, `Native` | `permission:*`, `zoom:changed`, `system:*`, `session:*`, `tray:window-hidden`, `web-notification:*` |
 | Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
 | Sync IPC (host object), boot values, native drag-out | [SYNC_IPC.md](SYNC_IPC.md) | `SyncHost` (sync only), `Drag` | `drag:ended` |
 

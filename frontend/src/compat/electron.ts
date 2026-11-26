@@ -20,6 +20,7 @@
 import { boson, BosonIpcError, type Unsubscribe } from '../boson';
 import { startDrag as nativeStartDrag, type DragResult } from '../dragout';
 import { AppWindow, currentLabel, windows, type WindowInfo } from '../windows';
+import { app as nativeApp, dialog as nativeDialog } from '../native';
 
 export const IPC_EVENT_PREFIX = 'ipc:';
 
@@ -336,8 +337,6 @@ export function startDrag(item: DragItem): Promise<DragResult> {
   return nativeStartDrag(files, item.icon !== undefined ? { icon: item.icon } : {});
 }
 
-/** Drop-in for `import { ipcRenderer, contextBridge, ... } from 'electron'` via a bundler alias. */
-export const electron = { ipcRenderer, contextBridge, webUtils, webFrame, process, clipboard, startDrag };
 
 // ---- BrowserWindow (renderer-side proxy) ---------------------------------------------------------------------
 
@@ -636,6 +635,44 @@ export class BrowserWindow {
   }
 }
 
+/**
+ * Main-process APIs Electron apps usually reach over IPC, callable directly from the renderer in Boson.
+ * dialog.* resolve with Electron's result shapes; the window argument of Electron's signatures is optional
+ * and ignored (dialogs are owned by the Boson window).
+ */
+export const dialog = {
+  showOpenDialog: (...args: unknown[]) => nativeDialog.showOpenDialog(lastObject(args)),
+  showSaveDialog: (...args: unknown[]) => nativeDialog.showSaveDialog(lastObject(args)),
+  showMessageBox: (...args: unknown[]) =>
+    nativeDialog.showMessageBox(lastObject(args) as unknown as Parameters<typeof nativeDialog.showMessageBox>[0]),
+  showErrorBox: (title: string, content: string) => nativeDialog.showErrorBox(title, content),
+};
+
+function lastObject(args: unknown[]): Record<string, never> {
+  const found = [...args].reverse().find((a) => typeof a === 'object' && a !== null && !('hwnd' in (a as object)));
+  return (found ?? {}) as Record<string, never>;
+}
+
+/** app.getAppMetrics / getLocale / getPreferredSystemLanguages / getSystemLocale (all async in Boson). */
+export const app = {
+  getAppMetrics: () => nativeApp.getAppMetrics(),
+  getLocale: () => nativeApp.getLocale(),
+  getSystemLocale: () => nativeApp.getSystemLocale(),
+  getPreferredSystemLanguages: () => nativeApp.getPreferredSystemLanguages(),
+};
+
+/** systemPreferences.getAccentColor() resolves "rrggbbaa" like Electron. */
+export const systemPreferences = {
+  getAccentColor: async () => (await nativeApp.systemPreferences()).accent_color.replace('#', '') + 'ff',
+  getAnimationSettings: async () => {
+    const p = await nativeApp.systemPreferences();
+    return { shouldRenderRichAnimation: !p.reduced_motion, scrollAnimationsEnabledBySystem: !p.reduced_motion, prefersReducedMotion: p.reduced_motion };
+  },
+};
+
+
 /** Drop-in for `import { ipcRenderer, contextBridge } from 'electron'` via a bundler alias. */
-export const electron = { ipcRenderer, contextBridge, BrowserWindow };
+export const electron = {
+  ipcRenderer, contextBridge, webUtils, webFrame, process, clipboard, startDrag, BrowserWindow, dialog, app, systemPreferences,
+};
 export default electron;

@@ -10,6 +10,7 @@
 #include <boson/ipc/controllers/fs_controller.hpp>
 #include <boson/ipc/controllers/log_controller.hpp>
 #include <boson/ipc/controllers/menu_controller.hpp>
+#include <boson/ipc/controllers/native_controller.hpp>
 #include <boson/ipc/controllers/notification_controller.hpp>
 #include <boson/ipc/controllers/power_controller.hpp>
 #include <boson/ipc/controllers/safe_storage_controller.hpp>
@@ -62,7 +63,7 @@ bool write_file(const std::filesystem::path& out_path, const std::string& conten
 using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents, boson::ipc::DesktopEvents, boson::ipc::MenuEvents,
                                                       boson::ipc::ShellIntegrationEvents, boson::ipc::PlatformEvents,
                                                       boson::ipc::StoreEvents<boson::demo::DemoSettings>, boson::ipc::DragEvents,
-                                                      boson::ipc::WindowManagerEvents>;
+                                                      boson::ipc::WindowManagerEvents, boson::ipc::NativeEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -78,10 +79,13 @@ using AllControllers = Outputs<
     boson::ipc::ClipboardController,
     boson::ipc::CredentialController,
     boson::ipc::DragController,
+    boson::ipc::DialogController,
     boson::ipc::FsController,
     boson::ipc::LogController,
     boson::ipc::MenuController,
+    boson::ipc::NativeController,
     boson::ipc::NotificationController,
+    boson::ipc::PermissionController,
     boson::ipc::PowerController,
     boson::ipc::SafeStorageController,
     boson::ipc::ScreenController,
@@ -94,7 +98,8 @@ using AllControllers = Outputs<
     boson::ipc::TransferController,
     boson::ipc::UpdaterController,
     boson::ipc::WebViewController,
-    boson::ipc::WindowController>;
+    boson::ipc::WindowController,
+    boson::ipc::ZoomController>;
 
 // Usage: boson_tsgen [bindings.d.ts [method-params.ts]]
 //   bindings.d.ts     BosonApi / BosonEvents declarations (stdout when omitted)

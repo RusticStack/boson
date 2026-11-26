@@ -48,9 +48,18 @@
 #include <boson/ipc/controllers/menu_controller.hpp>
 #include <boson/ipc/controllers/transfer_controller.hpp>
 
+#include <boson/native/browser_args.hpp>
 #include <boson/native/dialog.hpp>
+#include <boson/native/message_box.hpp>
+#include <boson/native/metrics.hpp>
 #include <boson/native/notification.hpp>
+#include <boson/native/permissions.hpp>
+#include <boson/native/session.hpp>
+#include <boson/native/system_info.hpp>
 #include <boson/native/tray.hpp>
+#include <boson/native/web_notifications.hpp>
+#include <boson/native/zoom.hpp>
+#include <boson/ipc/controllers/native_controller.hpp>
 
 #include <boson/menu/accelerator.hpp>
 #include <boson/menu/menu.hpp>

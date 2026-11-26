@@ -34,6 +34,16 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Shell `openExternal` / `showItemInFolder` | `shell` module | `tauri-plugin-opener` + `shell` | `desktop` shell (`open_external` with scheme allow-list, `show_item_in_folder`, `move_to_trash`, known folders) |
 | | Auto-Launch on Login | `app.setLoginItemSettings()` | `tauri-plugin-autostart` | `shell` auto-launch (HKCU Run + StartupApproved state) |
 | **Notifications** | Native Notifications | WinRT Toast (`toastXml`) + balloon | `tauri-plugin-notification` (WinRT Toast) | WinRT toasts without the Windows App SDK (buttons, inline reply, progress, COM activation) + `Shell_NotifyIconW` fallback |
+| | Web Notification API in pages | Native toasts | Plugin | `native::WebNotificationHost` (`NotificationReceived` -> toast, click focuses window + `onclick`, tag replace, close) |
+| **Native UI** | File open / save / folder dialogs | `dialog.showOpenDialog` / `showSaveDialog` | `tauri-plugin-dialog` | `native::show_file_dialog_async` (`IFileOpenDialog` / `IFileSaveDialog`, multi-select, filters, default path) + `Dialog.*` JS + Electron shim |
+| | Message box / error box | `dialog.showMessageBox` (checkbox) / `showErrorBox` | `message` / `ask` / `confirm` | `TaskDialogIndirect` (custom buttons, icons, "don't ask again", default/cancel id) + `MessageBoxW` fallback |
+| | Permission handling | `session.setPermissionRequestHandler` | Capabilities (no runtime prompt API) | `native::PermissionManager` (per-origin rules, persisted, JS prompt hook, `SavesInProfile = FALSE`) |
+| | Zoom | `webContents.setZoomFactor` / `webFrame` / `zoom-changed` | `set_zoom` | `Zoom.*` (factor, Chromium preset steps, Electron levels) + `zoom:changed` |
+| | Process metrics | `app.getAppMetrics()` | — | `native::MetricsSampler` (app + WebView2 tree, memory + CPU %) + `Native.metrics` |
+| | Locale / system preferences | `app.getLocale`, `getPreferredSystemLanguages`, `systemPreferences`, `nativeTheme` | `tauri-plugin-os` (locale) | `native::query_locale` / `query_system_preferences` (accent, high contrast, reduced motion, text scale) + change events |
+| | Session end / shutdown blocking | `powerMonitor 'shutdown'` (no block reason) | — | `native::SessionEndWatcher` (`WM_QUERYENDSESSION` veto, `ShutdownBlockReasonCreate`, `WM_ENDSESSION`) |
+| | Close to tray | Manual (`close` + `hide`) | Manual | `native::CloseToTray` (cancel close, hide, restore on tray / balloon click) |
+| | Chromium switches | `app.commandLine.appendSwitch` | `additionalBrowserArgs` | `native::browser_args` (WebGL context limit, merged `--js-flags`, features, autoplay) |
 | **Storage & Security** | Scoped Filesystem API | Node `fs` (unscoped) | `tauri-plugin-fs` (capability-scoped) | `security::ScopedFs` + `Fs.*` (traversal, junction, UNC/device-path protection; watch) |
 | | Secure Credential Store | `safeStorage` (Win32 DPAPI) | `stronghold` / `keyring` | `SafeStorage` (DPAPI) + `CredentialStore` (Windows Credential Manager) |
 | | Settings Store | `electron-store` | `tauri-plugin-store` | `store::Store<T>` (typed, defaults, corrupt-file recovery, atomic saves) + `Store` controller and `store:changed` ([STORE.md](STORE.md)) |
@@ -64,10 +74,11 @@ Done (see the module docs):
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
+- Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / preferences, session end, close-to-tray: [NATIVE.md](NATIVE.md)
 - Electron/Tauri/Wails shims and migration tables: [MIGRATION.md](MIGRATION.md), [PORTING.md](PORTING.md); measurements: [BENCHMARKS.md](BENCHMARKS.md)
 
 Remaining:
 1. **MSI verification**: build and install the CPack WiX package on a machine with WiX installed.
 2. **Comparative benchmarks**: run `boson_bench` against equivalent Electron, Tauri and Wails apps.
-3. **Real-input verification**: physical drag-and-drop from Explorer, Snap Layouts hover, global shortcut key presses, toast clicks, and screen readers (all tested only with synthesized messages).
+3. **Real-input verification**: physical drag-and-drop from Explorer, Snap Layouts hover, global shortcut key presses, toast clicks (including Web Notification toasts), real logoff / shutdown, and screen readers (all tested only with synthesized messages).
 4. **Cross-platform backends**: intentionally out of scope for now (Windows only).
