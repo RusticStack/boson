@@ -111,6 +111,10 @@ struct WebViewConfig {
     bool in_private = false;
     /// BCP 47 locale for JavaScript Intl / Date formatting (ICoreWebView2ControllerOptions2::ScriptLocale).
     std::wstring script_locale;
+    /// While the parent window is minimized (and keep_visible_when_minimized is off) the runtime is asked to
+    /// trim this WebView's memory (MemoryUsageTargetLevel Low, ICoreWebView2_19); it returns to the requested
+    /// level on restore. The page keeps its state; only caches are released. docs/PERFORMANCE.md has numbers.
+    bool low_memory_when_minimized = true;
 };
 
 /// @brief One ICoreWebView2Controller. All members must be called on the UI thread.
@@ -255,6 +259,9 @@ public:
     /// @brief ICoreWebView2_19::put_MemoryUsageTargetLevel. set_visible(true) restores Normal.
     bool set_memory_usage_target(MemoryUsageTarget target) noexcept;
     [[nodiscard]] MemoryUsageTarget memory_usage_target() const noexcept { return m_memory_target; }
+    /// @brief The level the runtime currently has: memory_usage_target(), or Low while the parent is minimized
+    /// (WebViewConfig::low_memory_when_minimized).
+    [[nodiscard]] MemoryUsageTarget applied_memory_target() const noexcept { return m_applied_memory_target; }
     [[nodiscard]] std::chrono::steady_clock::time_point hidden_since() const noexcept { return m_hidden_since; }
     [[nodiscard]] bool last_known_playing_audio() const noexcept { return m_playing_audio; }
 
@@ -348,7 +355,10 @@ private:
     bool m_playing_audio = false;
     float m_opacity = 1.0f;
     float m_corner_radius = 0.0f;
-    MemoryUsageTarget m_memory_target = MemoryUsageTarget::Normal;
+    MemoryUsageTarget m_memory_target = MemoryUsageTarget::Normal;         ///< what the app asked for
+    MemoryUsageTarget m_applied_memory_target = MemoryUsageTarget::Normal; ///< what the runtime currently has
+    /// Pushes max(requested, minimized-Low) to the runtime when it differs from what is applied.
+    bool apply_memory_target() noexcept;
     std::chrono::steady_clock::time_point m_hidden_since{};
     std::string m_restore_url;
 

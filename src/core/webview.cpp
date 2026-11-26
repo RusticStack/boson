@@ -376,9 +376,7 @@ void WebView::configure_new_controller() {
     }
     apply_settings(effective);
 
-    if (m_memory_target != MemoryUsageTarget::Normal) {
-        set_memory_usage_target(m_memory_target);
-    }
+    apply_memory_target();
 
     if (m_config.serve_boson_assets) {
         BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(L"boson://app/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -593,11 +591,13 @@ void WebView::set_visible(bool visible) noexcept {
 void WebView::set_parent_minimized(bool minimized) noexcept {
     m_parent_minimized = minimized;
     apply_visibility();
+    apply_memory_target();
 }
 
 void WebView::set_keep_visible_when_minimized(bool keep) noexcept {
     m_keep_visible_when_minimized = keep;
     apply_visibility();
+    apply_memory_target();
 }
 
 void WebView::apply_visibility() noexcept {
@@ -1088,13 +1088,26 @@ std::optional<bool> WebView::is_suspended() const noexcept {
 
 bool WebView::set_memory_usage_target(MemoryUsageTarget target) noexcept {
     m_memory_target = target;
+    return apply_memory_target();
+}
+
+bool WebView::apply_memory_target() noexcept {
+    const bool minimized_low = m_config.low_memory_when_minimized && m_parent_minimized && !m_keep_visible_when_minimized;
+    const MemoryUsageTarget effective = minimized_low ? MemoryUsageTarget::Low : m_memory_target;
+    if (effective == m_applied_memory_target) {
+        return true;
+    }
     ComPtr<ICoreWebView2_19> webview19;
     if (m_webview == nullptr || !BOSON_HR_CHECK(m_webview.As(&webview19))) {
         return false;
     }
-    return BOSON_HR_CHECK(webview19->put_MemoryUsageTargetLevel(
-        target == MemoryUsageTarget::Low ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
-                                         : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL));
+    if (!BOSON_HR_CHECK(webview19->put_MemoryUsageTargetLevel(
+            effective == MemoryUsageTarget::Low ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+                                                : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL))) {
+        return false;
+    }
+    m_applied_memory_target = effective;
+    return true;
 }
 
 // ---- Composition input -----------------------------------------------------------------------------------

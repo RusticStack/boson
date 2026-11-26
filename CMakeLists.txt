@@ -270,6 +270,28 @@ target_link_options(boson_core
         $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>,$<NOT:$<STREQUAL:${BOSON_PGO},OFF>>>:/DEBUG>
 )
 
+# Delay-load system DLLs that only some modules use, so an app that does not call them never maps them:
+# every DLL costs a LoadLibrary at startup plus its (and its dependencies') private data. The delay-load helper
+# (delayimp.lib) resolves the import on the first call. Consumers inherit the flags (PUBLIC link options).
+#  - Not delay-loaded on purpose: dbghelp (the crash reporter must not load a DLL from inside an unhandled
+#    exception filter, so it stays an ordinary import) and everything user32 / gdi32 / ole32 / shell32 / advapi32 /
+#    dwmapi / shcore / shlwapi / version, which the window and the WebView2 loader map before main anyway.
+#  - /IGNORE:4199: not every executable that links boson_core ends up importing every listed DLL (unused objects
+#    of the static library are dropped), and an unused /DELAYLOAD entry is warning LNK4199.
+option(BOSON_DELAYLOAD "Delay-load rarely used system DLLs (uiautomationcore, dcomp, winhttp, crypt32, ...)" ON)
+set(BOSON_DELAYLOAD_DLLS
+    uiautomationcore.dll dcomp.dll windowscodecs.dll crypt32.dll bcrypt.dll winhttp.dll wintrust.dll
+    wtsapi32.dll ws2_32.dll runtimeobject.dll propsys.dll)
+if(MSVC AND BOSON_DELAYLOAD)
+    set(_boson_delay_flags "/IGNORE:4199")
+    foreach(_dll IN LISTS BOSON_DELAYLOAD_DLLS)
+        list(APPEND _boson_delay_flags "/DELAYLOAD:${_dll}")
+    endforeach()
+    target_link_options(boson_core PUBLIC ${_boson_delay_flags})
+    target_link_libraries(boson_core PUBLIC delayimp)
+    target_compile_definitions(boson_core PUBLIC BOSON_DELAYLOAD_ENABLED=1)
+endif()
+
 target_link_libraries(boson_core
     PUBLIC
         glaze::glaze
@@ -417,6 +439,13 @@ add_executable(boson_bench_app WIN32
 )
 target_link_libraries(boson_bench_app PRIVATE boson_core)
 boson_enable_pgo(boson_bench_app)
+
+# Every module constructed and registered: measures the idle cost of an app that uses all of Boson
+# (docs/PERFORMANCE.md, "Memory footprint, threads and idle cost").
+add_executable(boson_kitchen_sink WIN32
+    examples/kitchen_sink/main.cpp
+)
+target_link_libraries(boson_kitchen_sink PRIVATE boson_core)
 
 # Process-tree benchmark harness (any framework's executable).
 add_executable(boson_bench

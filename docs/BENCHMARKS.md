@@ -334,3 +334,15 @@ added for it: `boson_ipc_bench` (`tests/bench_ipc.cpp`, counts allocations/bytes
 interleaved runs): ping allocations 10 -> 3 per round trip, response bytes 1136 -> 64, UI wake-ups per call under load 1 -> 0.002,
 1 MiB echo native path 4.1 -> 2.1 ms, page-counted events 150 k/s -> 161 k/s (606 k/s with opt-in batching), 10 MiB echo
 275 -> 240 ms; 1000-ping latency is unchanged within noise. The headline numbers in the table above were not re-measured.
+## Host footprint: threads, modules, idle wake-ups (memory-footprint pass)
+Measured with `bench/memsnap.ps1` on the Release build (details, methods and the WebView2 option experiments in
+[PERFORMANCE.md](PERFORMANCE.md#memory-footprint-threads-and-idle-cost)). Host = the app's own process; median of 5
+interleaved runs, 12 s idle window. `boson_kitchen_sink` (examples/kitchen_sink) is bench_app with every module constructed
+and registered.
+| App | Threads before -> after | Host private WS (MB) before -> after | Host commit (MB) before -> after | Modules before -> after |
+|---|---:|---:|---:|---:|
+| boson_bench_app | 33 -> 15 | 3.29 -> 2.55 | 4.66 -> 3.63 | 44 -> 42 |
+| boson_demo | 36 -> 18 | 3.82 -> 2.88 | 5.50 -> 4.19 | 47 -> 44 |
+| boson_kitchen_sink | 36 -> 18 | 4.45 -> 3.20 | 6.50 -> 4.82 | 56 -> 51 |
+Minimized (tree private WS): bench_app 84.9 -> 77.0 MB, kitchen sink 83.8 -> 75.7 MB. The Debug-build idle numbers in the first
+table of this file predate this pass; they were not re-measured.
