@@ -50,7 +50,11 @@ std::string escape_json_string(std::string_view input) {
     return out;
 }
 
-std::string make_error_envelope(std::uint64_t callback_id, std::string_view message) noexcept {
+}  // namespace
+
+namespace detail {
+
+std::string make_task_error_envelope(std::uint64_t callback_id, std::string_view message) noexcept {
     try {
         std::string out;
         out.reserve(96 + message.size());
@@ -63,6 +67,14 @@ std::string make_error_envelope(std::uint64_t callback_id, std::string_view mess
     } catch (...) {
         return "{\"id\":0,\"status\":\"error\",\"error\":{\"code\":-32000,\"message\":\"Internal error\"}}";
     }
+}
+
+}  // namespace detail
+
+namespace {
+
+std::string make_error_envelope(std::uint64_t callback_id, std::string_view message) noexcept {
+    return detail::make_task_error_envelope(callback_id, message);
 }
 
 std::string invoke_safely(
@@ -122,11 +134,9 @@ void TaskRunner::dispatch(
         stdexec::then([callback_id, task = std::move(work)]() noexcept -> std::string {
             return invoke_safely(callback_id, task);
         }) |
-        stdexec::then([&marshal = m_marshal, done = std::move(on_complete)](std::string payload) noexcept {
+        stdexec::then([&marshal = m_marshal, done = std::move(on_complete)](std::string payload) mutable noexcept {
             try {
-                marshal.post_task([done, result = std::move(payload)]() mutable {
-                    done(std::move(result));
-                });
+                marshal.post_reply(std::move(done), std::move(payload));
             } catch (...) {
                 // Never allow exceptions to escape background worker into stdexec::async_scope.
             }

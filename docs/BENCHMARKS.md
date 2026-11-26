@@ -311,3 +311,13 @@ boson_bench --compare bench-results\boson_bench_app.json bench-results\electron.
   on Windows 10, on a quiet machine, at a DPI other than this machine's, and installer sizes (no NSIS/WiX).
 - The window probe measures window geometry, not presentation: a content HWND in place does not prove its pixels
   were composed in the same frame.
+
+## IPC hot path (optimisation pass)
+
+Native allocation / wake-up counts, per-call cost and end-to-end numbers for the IPC path (Router, Bridge, TaskRunner,
+UiMarshal, UTF-8/UTF-16 conversion, event batching) are in [PERFORMANCE.md](PERFORMANCE.md#ipc-hot-path). Two harnesses were
+added for it: `boson_ipc_bench` (`tests/bench_ipc.cpp`, counts allocations/bytes/wake-ups per call, no WebView needed) and an
+`events_20k` scenario plus `--batch-events` flag in `boson_bench_app`. Summary on this machine (Release, medians of 5
+interleaved runs): ping allocations 10 -> 3 per round trip, response bytes 1136 -> 64, UI wake-ups per call under load 1 -> 0.002,
+1 MiB echo native path 4.1 -> 2.1 ms, page-counted events 150 k/s -> 161 k/s (606 k/s with opt-in batching), 10 MiB echo
+275 -> 240 ms; 1000-ping latency is unchanged within noise. The headline numbers in the table above were not re-measured.

@@ -1,6 +1,7 @@
 #include "boson/ipc/bridge.hpp"
 
 #include <boson/core/result.hpp>
+#include <boson/core/text_convert.hpp>
 #include <boson/ipc/request_context.hpp>
 
 #include <algorithm>
@@ -11,13 +12,48 @@ namespace boson::ipc {
 
 namespace {
 
+char ascii_lower(char ch) noexcept {
+    return (ch >= 'A' && ch <= 'Z') ? static_cast<char>(ch - 'A' + 'a') : ch;
+}
+
 std::string to_lower(std::string_view text) {
     std::string out;
     out.reserve(text.size());
     for (const char ch : text) {
-        out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        out.push_back(ascii_lower(ch));
     }
     return out;
+}
+
+bool equals_ignore_case(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (ascii_lower(a[i]) != ascii_lower(b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// scheme and authority (userinfo stripped) of uri as views into it; false for opaque or malformed URIs.
+bool split_origin(std::string_view uri, std::string_view& scheme, std::string_view& authority) noexcept {
+    const auto scheme_end = uri.find("://");
+    if (scheme_end == std::string_view::npos || scheme_end == 0) {
+        return false;
+    }
+    const auto authority_start = scheme_end + 3;
+    auto authority_end = uri.find_first_of("/?#", authority_start);
+    if (authority_end == std::string_view::npos) {
+        authority_end = uri.size();
+    }
+    authority = uri.substr(authority_start, authority_end - authority_start);
+    if (const auto at = authority.rfind('@'); at != std::string_view::npos) {
+        authority.remove_prefix(at + 1); // strip userinfo
+    }
+    scheme = uri.substr(0, scheme_end);
+    return !authority.empty();
 }
 
 std::string_view trim_trailing_slash(std::string_view text) noexcept {
@@ -32,9 +68,12 @@ std::string_view trim_trailing_slash(std::string_view text) noexcept {
 Bridge::Bridge(exec::TaskRunner& runner, exec::UiMarshal& marshal, DispatchCallback dispatch_fn)
     : m_runner(runner),
       m_marshal(marshal),
-      m_dispatch_fn(std::move(dispatch_fn)) {}
+      m_dispatch_fn(std::move(dispatch_fn)) {
+    m_marshal.add_drain_hook(this, [this]() { flush_events(); });
+}
 
 Bridge::~Bridge() {
+    m_marshal.remove_drain_hook(this);
     *m_alive = false;
     for (const auto& attachment : m_attachments) {
         attachment.webview->set_message_callback({});
@@ -43,35 +82,35 @@ Bridge::~Bridge() {
 }
 
 std::string Bridge::origin_of(std::string_view uri) {
-    const auto scheme_end = uri.find("://");
-    if (scheme_end == std::string_view::npos || scheme_end == 0) {
+    std::string_view scheme;
+    std::string_view authority;
+    if (!split_origin(uri, scheme, authority)) {
         return {};
     }
-    const auto authority_start = scheme_end + 3;
-    auto authority_end = uri.find_first_of("/?#", authority_start);
-    if (authority_end == std::string_view::npos) {
-        authority_end = uri.size();
-    }
-    std::string_view authority = uri.substr(authority_start, authority_end - authority_start);
-    if (const auto at = authority.rfind('@'); at != std::string_view::npos) {
-        authority.remove_prefix(at + 1); // strip userinfo
-    }
-    if (authority.empty()) {
-        return {};
-    }
-    std::string out = to_lower(uri.substr(0, scheme_end));
+    std::string out = to_lower(scheme);
     out += "://";
     out += to_lower(authority);
     return out;
 }
 
 bool Bridge::is_origin_allowed(std::string_view source_uri, std::span<const std::string> allowed) {
-    const std::string origin = origin_of(source_uri);
+    // Allocation-free: this runs for every IPC message. The origin is compared as views, case-insensitively.
+    std::string_view scheme;
+    std::string_view authority;
+    const bool has_origin = split_origin(source_uri, scheme, authority);
     for (const auto& entry : allowed) {
         if (entry == "*") {
             return true;
         }
-        if (!origin.empty() && origin == to_lower(trim_trailing_slash(entry))) {
+        if (!has_origin) {
+            continue;
+        }
+        const std::string_view pattern = trim_trailing_slash(entry);
+        // pattern must read "<scheme>://<authority>" (the origin is never longer than that form).
+        if (pattern.size() == scheme.size() + 3 + authority.size() &&
+            equals_ignore_case(pattern.substr(0, scheme.size()), scheme) &&
+            pattern.substr(scheme.size(), 3) == "://" &&
+            equals_ignore_case(pattern.substr(scheme.size() + 3), authority)) {
             return true;
         }
     }
@@ -85,6 +124,7 @@ void Bridge::attach(core::WebView& webview, BridgeAttachOptions options) {
         .allowed_origins = std::move(options.allowed_origins),
         .capabilities = std::move(options.capabilities),
         .window_label = std::move(options.window_label),
+        .batch_events = options.batch_events,
     };
     if (attachment.allowed_origins.empty()) {
         attachment.allowed_origins.emplace_back("boson://app");
@@ -105,6 +145,7 @@ void Bridge::attach(core::WebView& webview, BridgeAttachOptions options) {
 }
 
 void Bridge::detach(core::WebView& webview) noexcept {
+    flush_events(); // events queued for this WebView must not be lost (or be sent to a later attachment)
     const auto it = std::ranges::find(m_attachments, &webview, &Attachment::webview);
     if (it != m_attachments.end()) {
         webview.set_message_callback({});
@@ -184,10 +225,72 @@ void Bridge::on_web_message(std::uint64_t webview_id, std::string_view raw_json,
     });
 }
 
-void Bridge::deliver(std::uint64_t webview_id, std::string_view json) const {
+void Bridge::deliver(std::uint64_t webview_id, std::string_view json) {
+    flush_events();
+    deliver_raw(webview_id, json);
+}
+
+bool Bridge::batches_events_for(std::uint64_t webview_id) const noexcept {
     if (webview_id == kAllWebViews) {
+        return !m_attachments.empty() &&
+               std::ranges::all_of(m_attachments, [](const Attachment& attachment) { return attachment.batch_events; });
+    }
+    const Attachment* attachment = find(webview_id);
+    return attachment != nullptr && attachment->batch_events;
+}
+
+void Bridge::deliver_event(std::uint64_t webview_id, std::string envelope) {
+    constexpr std::size_t kMaxBatchBytes = 256 * 1024;
+    constexpr std::uint32_t kMaxBatchEvents = 512;
+    if (!batches_events_for(webview_id)) {
+        deliver(webview_id, envelope);
+        return;
+    }
+    if (m_batch_count != 0 && m_batch_target != webview_id) {
+        flush_events();
+    }
+    if (m_batch_count == 0) {
+        m_batch.assign(1, '[');
+        m_batch_target = webview_id;
+    } else {
+        m_batch.push_back(',');
+    }
+    m_batch.append(envelope);
+    if (++m_batch_count == 1) {
+        m_batch_first_end = m_batch.size();
+    }
+    if (m_batch_count >= kMaxBatchEvents || m_batch.size() >= kMaxBatchBytes) {
+        flush_events();
+    }
+}
+
+void Bridge::flush_events() {
+    if (m_batch_count == 0) {
+        return;
+    }
+    const std::uint32_t count = std::exchange(m_batch_count, 0U);
+    if (count == 1) {
+        deliver_raw(m_batch_target, std::string_view{m_batch}.substr(1, m_batch_first_end - 1)); // a lone event stays unwrapped
+    } else {
+        m_batch.push_back(']');
+        deliver_raw(m_batch_target, m_batch);
+    }
+    if (m_batch.capacity() > 1024 * 1024) {
+        std::string{}.swap(m_batch);
+    }
+}
+
+void Bridge::deliver_raw(std::uint64_t webview_id, std::string_view json) const {
+    if (webview_id == kAllWebViews) {
+        if (m_attachments.size() == 1) {
+            m_attachments.front().webview->post_web_message_as_json(json);
+            return;
+        }
+        // Convert once for every WebView instead of once per WebView.
+        thread_local std::wstring wide;
+        core::utf8_to_wide_into(json, wide);
         for (const auto& attachment : m_attachments) {
-            attachment.webview->post_web_message_as_json(json);
+            attachment.webview->post_web_message_as_json_wide(wide);
         }
         return;
     }
@@ -196,7 +299,8 @@ void Bridge::deliver(std::uint64_t webview_id, std::string_view json) const {
     }
 }
 
-void Bridge::deliver_to_window(std::string_view window_label, std::string_view json) const {
+void Bridge::deliver_to_window(std::string_view window_label, std::string_view json) {
+    flush_events();
     for (const auto& attachment : m_attachments) {
         if (attachment.window_label == window_label) {
             attachment.webview->post_web_message_as_json(json);
@@ -206,12 +310,13 @@ void Bridge::deliver_to_window(std::string_view window_label, std::string_view j
 
 bool Bridge::emit_json_to_window(std::string_view window_label, std::string_view event, std::string_view data_json) {
     try {
-        std::string envelope = make_event_envelope(event, data_json);
-        m_marshal.post_task([this, alive = m_alive, label = std::string(window_label), envelope = std::move(envelope)]() {
-            if (*alive) {
-                deliver_to_window(label, envelope);
-            }
-        });
+        m_marshal.post_reply(
+            [this, alive = m_alive, label = std::string(window_label)](std::string envelope) {
+                if (*alive) {
+                    deliver_to_window(label, envelope);
+                }
+            },
+            make_event_envelope(event, data_json));
         return true;
     } catch (...) {
         return false;
@@ -220,12 +325,14 @@ bool Bridge::emit_json_to_window(std::string_view window_label, std::string_view
 
 bool Bridge::emit_json(std::uint64_t webview_id, std::string_view event, std::string_view data_json) {
     try {
-        std::string envelope = make_event_envelope(event, data_json);
-        m_marshal.post_task([this, alive = m_alive, webview_id, envelope = std::move(envelope)]() {
-            if (*alive) {
-                deliver(webview_id, envelope);
-            }
-        });
+        // The envelope rides in the queue item; the closure (this, alive, id) fits std::function's inline buffer.
+        m_marshal.post_reply(
+            [this, alive = m_alive, webview_id](std::string envelope) {
+                if (*alive) {
+                    deliver_event(webview_id, std::move(envelope));
+                }
+            },
+            make_event_envelope(event, data_json));
         return true;
     } catch (...) {
         return false;

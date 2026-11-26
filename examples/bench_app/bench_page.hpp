@@ -22,13 +22,21 @@ main{padding:16px 20px}h1{font-size:16px;margin:0 0 8px}pre{white-space:pre-wrap
   const pending = new Map();
   let nextId = 1;
   let running = false;
-  host.addEventListener('message', (e) => {
-    const d = e.data;
-    if (d && d.type === 'event') { if (d.event === 'bench:start') { void runAll(); } return; }
+  let tickCount = 0, tickTarget = 0, tickDone = null;
+  const handle = (d) => {
+    if (d && d.type === 'event') {
+      if (d.event === 'bench:tick') { if (++tickCount === tickTarget && tickDone) tickDone(); return; }
+      if (d.event === 'bench:start') { void runAll(); }
+      return;
+    }
     const p = d && pending.get(d.id);
     if (!p) return;
     pending.delete(d.id);
     if (d.status === 'success') p.resolve(d.data); else p.reject(new Error(d.error ? d.error.message : 'IPC error'));
+  };
+  host.addEventListener('message', (e) => {
+    const d = e.data;
+    if (Array.isArray(d)) { for (const item of d) handle(item); } else { handle(d); }
   });
   const call = (method, params) => new Promise((resolve, reject) => {
     const id = nextId++;
@@ -68,6 +76,18 @@ main{padding:16px 20px}h1{font-size:16px;margin:0 0 8px}pre{white-space:pre-wrap
       await Promise.all(Array.from({ length: SMALL }, (_, i) => call('ElectronIpc.invoke', { channel: 'bench:ping', args: [i] })));
       ms = performance.now() - t;
       result.dynamic_concurrent = { n: SMALL, total_ms: Math.round(ms * 1000) / 1000, calls_per_s: Math.round(SMALL / ms * 1000) };
+
+      const bursts = [];
+      for (let i = 0; i < REPS; i++) {
+        const n = 20000;
+        tickCount = 0; tickTarget = n;
+        const done = new Promise((r) => { tickDone = r; });
+        t = performance.now();
+        await call('Bench.emit_burst', { n });
+        await done;
+        bursts.push(n / (performance.now() - t) * 1000);
+      }
+      result.events_20k = { runs_per_s: bursts.map(Math.round), median_per_s: Math.round(median(bursts)) };
 
       const big = 'x'.repeat(BIG);
       const up = [];

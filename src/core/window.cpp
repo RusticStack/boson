@@ -174,8 +174,10 @@ int Window::run_message_loop() {
 }
 
 void Window::post_invoke() const noexcept {
-    if (m_hwnd != nullptr) {
-        PostMessageW(m_hwnd, kWmBosonInvoke, 0, 0);
+    if (m_hwnd != nullptr && !PostMessageW(m_hwnd, kWmBosonInvoke, 0, 0)) {
+        // UiMarshal coalesces wake-ups (one pending PostMessage per batch), so a lost post would stall the queue
+        // until the next enqueue: fall back to a one-shot timer that runs the invoke callback.
+        SetTimer(m_hwnd, kInvokeRetryTimerId, 10, nullptr);
     }
 }
 
@@ -846,6 +848,16 @@ LRESULT Window::handle_message(UINT msg, WPARAM w_param, LPARAM l_param) {
             m_on_invoke();
         }
         return 0;
+
+    case WM_TIMER:
+        if (w_param == kInvokeRetryTimerId) {
+            KillTimer(m_hwnd, kInvokeRetryTimerId);
+            if (m_on_invoke) {
+                m_on_invoke();
+            }
+            return 0;
+        }
+        break;
 
     case WM_CLOSE: {
         WindowEvent event{.kind = WindowEventKind::CloseRequested, .dpi = dpi()};
