@@ -13,6 +13,12 @@ string(REPLACE "/Ob2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Static CRT (/MT): executables no longer need the Visual C++ Redistributable (VCRUNTIME140.dll, MSVCP140.dll),
 # at the cost of a larger .exe. See docs/BENCHMARKS.md for both sizes.
 option(BOSON_STATIC_CRT "Link the MSVC runtime statically (/MT, /MTd)" OFF)
+# One self-contained .exe (docs/SHIPPING.md "Single executable"): static CRT for the whole tree, plus the
+# boson_single_exe(<target>) helper that checks the result imports only Windows system DLLs.
+option(BOSON_SINGLE_EXE "Build self-contained single executables (implies BOSON_STATIC_CRT)" OFF)
+if(BOSON_SINGLE_EXE)
+    set(BOSON_STATIC_CRT ON CACHE BOOL "" FORCE)
+endif()
 if(BOSON_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -27,6 +33,8 @@ endif()
 
 include(cmake/FetchWebView2.cmake)
 include(cmake/EmbedAssets.cmake)
+include(cmake/BosonSingleExe.cmake)
+include(cmake/BosonPgo.cmake)
 
 include(FetchContent)
 
@@ -113,6 +121,17 @@ if(BOSON_DB_ZEPHYR)
     # ZephyrDB's own /W4 build reports C4702 (unreachable code) in executor.cpp; keep its noise out of ours.
     target_compile_options(zephyrdb_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4702>)
 endif()
+
+# Extra Release switches for experiments (docs/PERFORMANCE.md "Build configuration"). Empty by default: /Gw,
+# /Gy and /Zc:inline produced byte-identical executables under /GL + /OPT:REF,ICF, so they are not set.
+set(BOSON_RELEASE_CODEGEN_FLAGS "" CACHE STRING "Extra MSVC Release compile flags for Boson targets, e.g. /Os")
+# RTTI off in Release: nothing in Boson uses dynamic_cast / typeid (exceptions do not need RTTI). -12 to -17 % exe size.
+# The flag is PUBLIC (an app that links boson_core and uses dynamic_cast / typeid must set -DBOSON_NO_RTTI=OFF).
+option(BOSON_NO_RTTI "Release builds: /GR- (smaller executables; no dynamic_cast / typeid)" ON)
+if(BOSON_NO_RTTI)
+    list(APPEND BOSON_RELEASE_CODEGEN_FLAGS "/GR-")
+endif()
+option(BOSON_AVX2 "Compile with /arch:AVX2 (needs a 2013+ CPU; the default stays baseline x64)" OFF)
 
 add_library(boson_core STATIC
     src/core/window.cpp
@@ -238,12 +257,16 @@ target_compile_definitions(boson_core
 target_compile_options(boson_core
     PUBLIC
         $<$<CXX_COMPILER_ID:MSVC>:/std:c++latest;/Zc:__cplusplus;/permissive-;/EHsc;/bigobj;/utf-8;/W4>
-        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2;/Ob3;/DNDEBUG>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2;/Ob3;/DNDEBUG;${BOSON_RELEASE_CODEGEN_FLAGS}>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<BOOL:${BOSON_AVX2}>>:/arch:AVX2>
 )
 
 target_link_options(boson_core
     PUBLIC
-        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/OPT:REF;/OPT:ICF;/DEBUG:NONE;/INCREMENTAL:NO>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/OPT:REF;/OPT:ICF;/INCREMENTAL:NO>
+        # /GENPROFILE only writes its .pgd when a PDB is produced (verified), so PGO builds link with /DEBUG.
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>,$<STREQUAL:${BOSON_PGO},OFF>>:/DEBUG:NONE>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>,$<NOT:$<STREQUAL:${BOSON_PGO},OFF>>>:/DEBUG>
 )
 
 target_link_libraries(boson_core
@@ -338,6 +361,13 @@ add_executable(boson_gpu_demo WIN32
 )
 target_link_libraries(boson_gpu_demo PRIVATE boson_gpu)
 
+# The smallest app: reference for the single-executable build.
+option(BOSON_HELLO_EMBED_BOOTSTRAPPER "Compile the WebView2 Evergreen bootstrapper into boson_hello (single-exe only)" OFF)
+add_executable(boson_hello WIN32
+    examples/hello/main.cpp
+)
+target_link_libraries(boson_hello PRIVATE boson_core)
+
 add_executable(boson_demo WIN32
     examples/demo/main.cpp
 )
@@ -385,6 +415,7 @@ add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
 )
 target_link_libraries(boson_bench_app PRIVATE boson_core)
+boson_enable_pgo(boson_bench_app)
 
 # Process-tree benchmark harness (any framework's executable).
 add_executable(boson_bench
@@ -751,4 +782,16 @@ if(BOSON_BUN_EXECUTABLE AND EXISTS "${BOSON_XTERM_DIR}/xterm/css/xterm.css" AND 
     target_link_libraries(boson_terminal_demo PRIVATE boson_core)
     add_test(NAME boson_terminal_demo_selftest COMMAND boson_terminal_demo --selftest)
     set_tests_properties(boson_terminal_demo_selftest PROPERTIES LABELS integration TIMEOUT 120)
+endif()
+
+# ---- Single executable (docs/SHIPPING.md): self-contained exes + a ctest that checks their imports -----------
+boson_enable_pgo(boson_browser)
+if(BOSON_SINGLE_EXE)
+    if(BOSON_HELLO_EMBED_BOOTSTRAPPER)
+        boson_single_exe(boson_hello EMBED_BOOTSTRAPPER)
+    else()
+        boson_single_exe(boson_hello)
+    endif()
+    boson_single_exe(boson_demo)
+    boson_single_exe(boson_browser)
 endif()

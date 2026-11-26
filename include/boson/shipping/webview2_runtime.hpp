@@ -6,10 +6,12 @@
 #include <boson/shipping/logger.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -23,6 +25,9 @@ namespace boson::shipping {
 
 /// Microsoft's Evergreen WebView2 bootstrapper (MicrosoftEdgeWebview2Setup.exe, ~2 MB).
 inline constexpr std::string_view kWebView2BootstrapperUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+
+/// Where a user can download the Evergreen runtime / bootstrapper by hand.
+inline constexpr std::string_view kWebView2DownloadPage = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
 /// @brief Version of the WebView2 runtime the loader would use (GetAvailableCoreWebView2BrowserVersionString),
 /// or std::nullopt when none is installed. browser_folder is a fixed-version runtime folder (empty = evergreen).
@@ -53,6 +58,10 @@ struct RuntimeEnsureResult {
 
 struct RuntimeBootstrapOptions {
     std::string bootstrapper_url = std::string(kWebView2BootstrapperUrl);
+    /// The bootstrapper compiled into the executable (boson_single_exe(... EMBED_BOOTSTRAPPER), see
+    /// docs/SHIPPING.md). When non-empty nothing is downloaded: the bytes are written to download_dir, their
+    /// Authenticode signature is checked against required_signer, and then they run.
+    std::span<const std::byte> embedded_bootstrapper;
     /// Asked before anything is downloaded; return false to abort. Empty = consent assumed (only do that
     /// when your installer / EULA already covers it). Runs on the thread that calls ensure_webview2_runtime().
     std::function<bool()> consent;
@@ -83,6 +92,23 @@ void ensure_webview2_runtime_async(
     exec::UiMarshal& marshal,
     RuntimeBootstrapOptions options,
     std::function<void(RuntimeEnsureResult)> on_done);
+
+struct RuntimeGuardOptions {
+    /// The bootstrapper compiled in with EMBED_BOOTSTRAPPER (boson::shipping::embedded_bootstrapper()), or empty.
+    std::span<const std::byte> embedded_bootstrapper;
+    HWND owner = nullptr;
+    std::wstring browser_folder; ///< Fixed-version runtime folder to check instead of the evergreen one.
+    std::shared_ptr<Logger> logger;
+    bool assume_missing = false; ///< Testing aid: behave as if no runtime were installed.
+    /// Testing aid: no message boxes (consent is assumed, failures only come back as the return value).
+    bool silent = false;
+};
+
+/// @brief Call at the top of wWinMain, before creating any WebView2 environment. Returns true when a runtime
+/// is available. When it is missing: with an embedded bootstrapper, asks for consent and installs it; without
+/// one, shows a native error dialog with the download link (and offers to open it). Never throws, blocks only
+/// while a dialog is open or the bootstrapper runs.
+[[nodiscard]] bool require_webview2_runtime(std::wstring_view app_name, const RuntimeGuardOptions& options = {});
 
 /// @brief A ready-made consent callback: a Yes/No MessageBox explaining the download.
 [[nodiscard]] std::function<bool()> message_box_consent(HWND owner, std::wstring app_name);
