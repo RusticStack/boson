@@ -1,7 +1,7 @@
 # WebView features
 
-Print/PDF, page capture, find-in-page, cookies, profiles, proxy, and authentication/certificate events for
-`boson::core::WebView`. Everything is built on the WebView2 SDK 1.0.4370.26 and lives in
+Print/PDF, page capture, find-in-page, cookies, profiles, proxy, authentication/certificate events and a DRM
+capability probe for `boson::core::WebView`. Everything is built on the WebView2 SDK 1.0.4370.26 and lives in
 `include/boson/webview/*.hpp` (namespace `boson::webview`). The JS controller is in
 `include/boson/ipc/controllers/webview_controller.hpp`.
 
@@ -176,6 +176,61 @@ boson::webview::clear_server_certificate_error_actions(view);    // forget Alway
 Each request also has a `defer()` method. It returns a completion function that you call once, later, on
 the UI thread.
 
+## DRM capability probe (`boson/webview/drm.hpp`)
+
+`probe_drm` tells an app which key system, robustness, codecs and encryption schemes the runtime grants
+for the page that is loaded, so a diagnostics panel can show "PlayReady SL3000 active" or "software DRM
+only" without hand-written `requestMediaKeySystemAccess` probes.
+
+```cpp
+boson::webview::probe_drm(view, [](HRESULT hr, boson::webview::DrmProbeResult r) {
+    // r.protection: "hardware" | "software" | "clearkey_only" | "none"; r.best: e.g. "playready_sl3000"
+    for (const auto& k : r.key_systems) { /* k.id, k.supported, k.video[], k.audio[], k.media_keys_created, k.hdcp_2_2 */ }
+});
+```
+
+Default queries (`DrmProbeOptions`, all replaceable):
+
+| id | key system | video robustness | counted as |
+|---|---|---|---|
+| `playready_sl3000` | `com.microsoft.playready.recommendation.3000` | `3000` | hardware |
+| `playready_sl2000` | `com.microsoft.playready.recommendation` | `2000` | software |
+| `widevine_l1` | `com.widevine.alpha` | `HW_SECURE_ALL` | hardware |
+| `widevine_l3` | `com.widevine.alpha` | `SW_SECURE_DECODE` (audio `SW_SECURE_CRYPTO`) | software |
+| `clearkey` | `org.w3.clearkey` | – | Clear Key |
+
+Each query asks for avc1 (`avc1.640028`), hev1 (`hev1.1.6.L120.90`), vp09 (`vp09.00.40.08`) and av01
+(`av01.0.08M.08`) in `video/mp4`, each with `cenc` and `cbcs`. The result lists the capabilities the CDM
+accepted. Audio (mp4a, ec-3, opus) is probed with a separate request after a video match, so an audio
+robustness mismatch cannot hide a supported video pipeline. By default the probe also calls
+`createMediaKeys()`, which loads and initializes the CDM, and `getStatusForPolicy({minHdcpVersion: "2.2"})`.
+A query counts as usable when it is supported and `createMediaKeys` did not fail. `protection` and `best`
+summarize the usable queries, and `summarize(result)` gives the same answer as an enum.
+
+How it runs:
+
+- The probe is one async script evaluated with DevTools `Runtime.evaluate` (`awaitPromise`). It therefore
+  works on third-party pages, ignores the page CSP and needs no web messages or bridge.
+- EME needs a secure context: `https:`, `boson://` or `http://localhost`. On other pages the callback
+  gets `S_OK` with `eme_available = false` and `error` set.
+- A failure HRESULT means that the evaluation itself failed, for example because a navigation was in progress.
+- Each EME call has its own timeout (`timeout_ms`, 10 s by default).
+- `build_drm_probe_script(options)` returns the script, and `parse_drm_probe_result(json)` parses its output.
+  Use them to run the probe yourself, for example in a frame.
+
+From JavaScript, `WebView.probe_drm` runs the same probe in the calling WebView:
+
+```ts
+import { webview } from './webview';
+const drm = await webview.probeDrm();                 // DrmProbeResult
+if (drm.protection === 'hardware') showBadge(`${drm.best} active`);
+await webview.probeDrm({ key_systems: [{ id: 'ck', key_system: 'org.w3.clearkey' }], audio_codecs: [] });
+```
+
+In a JS request, omitted fields keep the defaults. A list you send replaces the default list; it is not merged
+into it. The results measured on real hardware and the `EnvironmentConfig` flags that change them are in
+[COMPOSITION_DRM_SPIKE.md](COMPOSITION_DRM_SPIKE.md).
+
 ## JS controller "WebView" (`boson::ipc::WebViewController`)
 
 Construct one controller per WebView and router, like `SystemController`:
@@ -196,6 +251,7 @@ The controller has these methods:
 - Find: `find_start`, `find_next`, `find_previous`, `find_stop`, `find_status`
 - Cookies: `get_cookies`, `set_cookie`, `delete_cookies`, `delete_all_cookies`
 - Profile: `clear_data`, `get_profile`, `set_color_scheme`
+- DRM: `probe_drm` (see above)
 
 How the calls run:
 
@@ -220,8 +276,8 @@ await webview.clearData(['cookies', 'disk_cache']);
 All results below were produced on this machine: Windows 11, WebView2 runtime 158.0.4370.33, SDK
 1.0.4370.26.
 
-`tests/test_webview_features.cpp` builds as `boson_webview_features_tests` and passed 257 of 257 checks. It
-contains 92 headless unit checks and 165 checks against the real runtime. The runtime checks cover:
+`tests/test_webview_features.cpp` builds as `boson_webview_features_tests` and passed 329 of 329 checks. It
+contains 120 headless unit checks and 209 checks against the real runtime. The runtime checks cover:
 
 - **Print to PDF:** `print_to_pdf` wrote a file that starts with `%PDF`. The run used landscape, margins,
   a header and footer, a page range and grayscale. `print_to_pdf_stream` returned bytes that start with
@@ -249,6 +305,13 @@ contains 92 headless unit checks and 165 checks against the real runtime. The ru
   `defer()` with credentials, and the server received the correct `Authorization` header.
 - **Proxy:** an Environment built with `apply_proxy(Fixed, 127.0.0.1:<port>)` sent
   `http://boson-proxy.test/` through the loopback server.
+- **DRM probe:** `probe_drm` on `boson://app`:
+  - the default probe found 5 queries, with Clear Key supported, `createMediaKeys` succeeding and avc1/cenc offered;
+  - on this machine it also reported PlayReady SL3000 (hardware);
+  - a custom probe (Clear Key plus an unknown key system) gave `clearkey_only` and `NotSupportedError`;
+  - the sender overload worked;
+  - `WebView.probe_drm` worked through Router and Bridge, including an invalid `timeout_ms` error. A key-system list
+    sent from JS replaced the defaults instead of being merged into them.
 - **WebView controller:** 12 RPCs went end to end through Router and Bridge from page JavaScript: capture
   (PNG and JPEG), find start and stop with `webview:find` events, set, get and clear cookies, PDF data and
   PDF file, get profile, and an invalid-argument error.
