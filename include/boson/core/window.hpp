@@ -82,6 +82,8 @@ struct WindowEvent {
 class Window {
 public:
     static constexpr UINT kWmBosonInvoke = WM_APP + 1;
+    /// One-shot retry timer used when PostMessageW(kWmBosonInvoke) fails (message queue full).
+    static constexpr UINT_PTR kInvokeRetryTimerId = 0xB05E;
 
     using ListenerId = std::uint64_t;
     using EventListener = std::function<void(WindowEvent& event)>;

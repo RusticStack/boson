@@ -140,6 +140,7 @@ add_library(boson_core STATIC
     src/core/environment.cpp
     src/core/composition.cpp
     src/core/ui_timer.cpp
+    src/core/text_convert.cpp
     src/core/webview_host.cpp
     src/core/protocol.cpp
     src/exec/task_runner.cpp
@@ -636,6 +637,14 @@ endif()
 # boson::db backend benchmark (not a test; run a Release build by hand).
 add_executable(boson_db_bench tests/bench_db.cpp)
 target_link_libraries(boson_db_bench PRIVATE boson_core)
+# IPC hot-path tests: conversions, Router table, envelopes, UiMarshal coalescing, Bridge event batching.
+add_executable(boson_ipc_hotpath_tests tests/test_ipc_hotpath.cpp)
+target_link_libraries(boson_ipc_hotpath_tests PRIVATE boson_core)
+add_test(NAME boson_ipc_hotpath_tests COMMAND boson_ipc_hotpath_tests)
+set_tests_properties(boson_ipc_hotpath_tests PROPERTIES TIMEOUT 240)
+# IPC hot-path micro-benchmark: allocations / bytes / wake-ups / ns per call (not a test; run a Release build by hand).
+add_executable(boson_ipc_bench tests/bench_ipc.cpp)
+target_link_libraries(boson_ipc_bench PRIVATE boson_core)
 # Native app services: hashing, ZIP, staged installs, HTTP client (loopback server), boson::db backends.
 add_executable(boson_native_services_tests
     tests/test_native_services.cpp

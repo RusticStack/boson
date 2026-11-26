@@ -13,6 +13,7 @@ namespace {
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 
+constexpr std::size_t kMaxRetainedWideChars = 1u << 20; // 2 MiB of UTF-16 kept per thread for message posts
 constexpr wchar_t kContainerClassName[] = L"BosonWebViewContainer";
 constexpr wchar_t kCaptionOverlayProp[] = L"BosonCaptionOverlay";
 
@@ -898,8 +899,18 @@ bool WebView::post_web_message_as_json(std::string_view json) const {
     if (m_webview == nullptr) {
         return false;
     }
-    const std::wstring wide = utf8_to_wide(json);
-    if (wide.empty() && !json.empty()) {
+    // One reusable UTF-16 buffer per thread: PostWebMessageAsJson copies the text before it returns.
+    thread_local std::wstring wide;
+    utf8_to_wide_into(json, wide);
+    const bool ok = post_web_message_as_json_wide(wide);
+    if (wide.capacity() > kMaxRetainedWideChars) {
+        std::wstring{}.swap(wide); // do not pin a multi-megabyte buffer after one large message
+    }
+    return ok;
+}
+
+bool WebView::post_web_message_as_json_wide(const std::wstring& wide) const {
+    if (m_webview == nullptr || wide.empty()) {
         return false;
     }
     return BOSON_HR_CHECK(m_webview->PostWebMessageAsJson(wide.c_str()));

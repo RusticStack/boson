@@ -91,6 +91,13 @@ class BosonClient {
   }
 
   private handleMessage(raw: unknown): void {
+    if (Array.isArray(raw)) {
+      // A batch of event envelopes (BridgeAttachOptions::batch_events): one postMessage, many events, in order.
+      for (const item of raw) {
+        this.handleMessage(item);
+      }
+      return;
+    }
     let payload: (RpcResponse & Partial<BosonEventEnvelope>) | null = null;
     try {
       payload = (typeof raw === 'string' ? JSON.parse(raw) : raw) as RpcResponse & Partial<BosonEventEnvelope>;
@@ -104,11 +111,13 @@ class BosonClient {
     if (payload.type === 'event' && typeof payload.event === 'string') {
       const set = this.listeners.get(payload.event);
       if (set) {
-        for (const listener of [...set]) {
-          try {
-            listener(payload.data);
-          } catch (err) {
-            console.error(`[boson] listener for "${payload.event}" threw`, err);
+        if (set.size === 1) {
+          // Common case: no snapshot copy of the listener set per event.
+          const [only] = set;
+          this.callListener(only, payload.event, payload.data);
+        } else {
+          for (const listener of [...set]) {
+            this.callListener(listener, payload.event, payload.data);
           }
         }
       }
@@ -130,6 +139,14 @@ class BosonClient {
     } else {
       const err = payload.error;
       entry.reject(new BosonIpcError(err?.message ?? 'Unknown C++ IPC error', err?.code ?? -32000));
+    }
+  }
+
+  private callListener(listener: Listener, event: string, data: unknown): void {
+    try {
+      listener(data);
+    } catch (err) {
+      console.error(`[boson] listener for "${event}" threw`, err);
     }
   }
 

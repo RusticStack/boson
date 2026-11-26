@@ -29,6 +29,11 @@ struct BridgeAttachOptions {
     std::shared_ptr<const security::CapabilityPolicy> capabilities;
     /// Label of the window hosting the WebView (app::WindowManager fills it in), for emit_to(label, ...).
     std::string window_label;
+    /// Coalesce the events emitted during one UI-thread drain into a single JSON array message
+    /// ([{"type":"event",...},{...}]) per WebView instead of one PostWebMessageAsJson each. Responses and events
+    /// keep their relative order. Opt-in: the page must unpack arrays (frontend/src/boson.ts does; a page with its
+    /// own raw 'message' listener must handle Array.isArray(event.data)).
+    bool batch_events = false;
 };
 
 /// @brief Connects WebView2 messaging, TaskRunner execution and a type-erased Router, and pushes
@@ -127,11 +132,18 @@ private:
         std::vector<std::string> allowed_origins;
         std::shared_ptr<const security::CapabilityPolicy> capabilities;
         std::string window_label;
+        bool batch_events = false;
     };
 
     void on_web_message(std::uint64_t webview_id, std::string_view raw_json, std::string_view source_uri);
-    void deliver(std::uint64_t webview_id, std::string_view json) const;
-    void deliver_to_window(std::string_view window_label, std::string_view json) const;
+    /// Delivers json after any batched events, so responses never overtake events emitted before them.
+    void deliver(std::uint64_t webview_id, std::string_view json);
+    void deliver_raw(std::uint64_t webview_id, std::string_view json) const;
+    /// UI thread: queues one event envelope for webview_id (batched when every recipient opted in).
+    void deliver_event(std::uint64_t webview_id, std::string envelope);
+    void flush_events();
+    [[nodiscard]] bool batches_events_for(std::uint64_t webview_id) const noexcept;
+    void deliver_to_window(std::string_view window_label, std::string_view json);
     [[nodiscard]] const Attachment* find(std::uint64_t webview_id) const noexcept;
 
     exec::TaskRunner& m_runner;
@@ -139,6 +151,12 @@ private:
     DispatchCallback m_dispatch_fn;
     std::vector<Attachment> m_attachments; // UI thread only
     std::shared_ptr<bool> m_alive = std::make_shared<bool>(true); // UI thread only
+
+    // Event batch under construction (UI thread only): "[" + envelope {"," + envelope}; closed by flush_events().
+    std::string m_batch;
+    std::uint64_t m_batch_target = 0;
+    std::uint32_t m_batch_count = 0;
+    std::size_t m_batch_first_end = 0; ///< end offset of the first envelope inside m_batch
 };
 
 }  // namespace boson::ipc

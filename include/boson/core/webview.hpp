@@ -213,6 +213,8 @@ public:
 
     bool set_transparent_background(bool enabled) noexcept;
     bool post_web_message_as_json(std::string_view json) const;
+    /// @brief Same as post_web_message_as_json() for text already converted to UTF-16 (broadcast: convert once).
+    bool post_web_message_as_json_wide(const std::wstring& json) const;
     bool post_web_message_as_string(std::string_view text) const;
 
     // ---- Suspension and memory (#7) ---------------------------------------------------------------------
