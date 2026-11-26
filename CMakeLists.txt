@@ -155,6 +155,9 @@ add_library(boson_core STATIC
     src/webview/proxy.cpp
     src/webview/security_events.cpp
     src/webview/drm.cpp
+    src/webview/cdp.cpp
+    src/webview/cdp_server.cpp
+    src/webview/guest.cpp
     src/desktop/hidden_window.cpp
     src/desktop/clipboard.cpp
     src/desktop/shell.cpp
@@ -501,6 +504,45 @@ add_executable(boson_webview_features_tests
 target_link_libraries(boson_webview_features_tests PRIVATE boson_core ws2_32)
 add_test(NAME boson_webview_features_tests COMMAND boson_webview_features_tests)
 set_tests_properties(boson_webview_features_tests PROPERTIES LABELS integration TIMEOUT 240)
+# <boson-webview> element, guests (partitions, preload, popups, downloads, IPC) and the CDP endpoint. The element
+# part needs the bundled frontend/src/webview_element.ts (bun); BOSON_PLAYWRIGHT_DIR enables the Playwright check.
+add_executable(boson_webview_element_tests
+    tests/test_webview_element.cpp
+)
+target_link_libraries(boson_webview_element_tests PRIVATE boson_core ws2_32)
+target_compile_definitions(boson_webview_element_tests PRIVATE BOSON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+if(BOSON_BUN_EXECUTABLE)
+    # frontend/src/webview_element.ts as one IIFE script (registers <boson-webview>), for the test and the example.
+    set(BOSON_ELEMENT_JS "${CMAKE_BINARY_DIR}/generated/webview_element.js")
+    add_custom_command(
+        OUTPUT "${BOSON_ELEMENT_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/frontend/src/webview_element.ts"
+                --format=iife --minify "--outfile=${BOSON_ELEMENT_JS}"
+        DEPENDS frontend/src/webview_element.ts frontend/src/boson.ts frontend/src/generated/boson-bindings.d.ts
+        COMMENT "Bundling <boson-webview>"
+        VERBATIM)
+    # Same bytes as a header for compilers without #embed (examples/webview_element/main.cpp picks one).
+    set(BOSON_ELEMENT_JS_HEADER "${CMAKE_BINARY_DIR}/generated/webview_element_js.hpp")
+    add_custom_command(
+        OUTPUT "${BOSON_ELEMENT_JS_HEADER}"
+        COMMAND "${CMAKE_COMMAND}" "-DIN=${BOSON_ELEMENT_JS}" "-DOUT=${BOSON_ELEMENT_JS_HEADER}" -DNAME=kElementJs
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${BOSON_ELEMENT_JS}" cmake/EmbedFile.cmake
+        VERBATIM)
+    add_custom_target(boson_webview_element_js DEPENDS "${BOSON_ELEMENT_JS}" "${BOSON_ELEMENT_JS_HEADER}")
+    add_dependencies(boson_webview_element_tests boson_webview_element_js)
+    target_compile_definitions(boson_webview_element_tests PRIVATE BOSON_ELEMENT_JS="${BOSON_ELEMENT_JS}")
+    # Example: split view of two <boson-webview> panes, popups, --cdp endpoint. The bundle is #embed-ded.
+    add_executable(boson_webview_element WIN32
+        examples/webview_element/main.cpp
+    )
+    target_link_libraries(boson_webview_element PRIVATE boson_core)
+    target_include_directories(boson_webview_element PRIVATE "${CMAKE_BINARY_DIR}/generated")
+    add_dependencies(boson_webview_element boson_webview_element_js)
+    set_source_files_properties(examples/webview_element/main.cpp PROPERTIES OBJECT_DEPENDS "${BOSON_ELEMENT_JS_HEADER}")
+endif()
+add_test(NAME boson_webview_element_tests COMMAND boson_webview_element_tests)
+set_tests_properties(boson_webview_element_tests PROPERTIES LABELS integration TIMEOUT 400)
 # Desktop basics: clipboard, shell, global shortcuts, deep links, screen, window state.
 add_executable(boson_desktop_tests
     tests/test_desktop.cpp

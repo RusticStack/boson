@@ -32,6 +32,16 @@ inline std::string take_utf8(HRESULT hr, wchar_t* raw, std::string_view context)
     return out;
 }
 
+/// @brief Calls a COM string getter (HRESULT get_X(LPWSTR*)) and returns the value as UTF-8.
+/// Use this instead of take_utf8(obj->get_X(&raw), raw, ...): argument evaluation order is unspecified, so raw
+/// may be read before the getter writes it.
+template <typename Getter>
+[[nodiscard]] std::string read_utf8(Getter&& getter, std::string_view context) {
+    wchar_t* raw = nullptr;
+    const HRESULT hr = getter(&raw);
+    return take_utf8(hr, raw, context);
+}
+
 /// @brief Frees a CoTaskMem string and returns it as UTF-16 (empty when hr failed or raw is null).
 inline std::wstring take_wide(HRESULT hr, wchar_t* raw, std::string_view context) {
     std::wstring out;
@@ -42,6 +52,14 @@ inline std::wstring take_wide(HRESULT hr, wchar_t* raw, std::string_view context
         CoTaskMemFree(raw);
     }
     return out;
+}
+
+/// @brief read_utf8 for UTF-16 results.
+template <typename Getter>
+[[nodiscard]] std::wstring read_wide(Getter&& getter, std::string_view context) {
+    wchar_t* raw = nullptr;
+    const HRESULT hr = getter(&raw);
+    return take_wide(hr, raw, context);
 }
 
 /// @brief QueryInterface on the WebView's ICoreWebView2; null when not ready or unsupported by the runtime.

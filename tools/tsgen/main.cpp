@@ -76,7 +76,8 @@ using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents
                                                       boson::ipc::GpuEvents,
                                                       boson::ipc::ProcessEvents,
                                                       boson::ipc::TerminalEvents,
-                                                      boson::ipc::HttpEvents>;
+                                                      boson::ipc::HttpEvents,
+                                                      boson::ipc::GuestEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -97,6 +98,7 @@ using AllControllers = Outputs<
     boson::ipc::GpuController,
     boson::ipc::DbController,
     boson::ipc::HttpController,
+    boson::ipc::GuestController,
     boson::ipc::LogController,
     boson::ipc::MenuController,
     boson::ipc::NativeController,

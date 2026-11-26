@@ -441,6 +441,7 @@ Each module has its own guide with API, examples and an honest verification sect
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
 | Terminals (ConPTY, xterm.js, node-pty shim) | [TERMINAL.md](TERMINAL.md) | `Terminal` | `terminal:exit`, `terminal:title`, `terminal:cwd` |
 | Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
+| `<boson-webview>` element, guests, CDP / Playwright endpoint | [WEBVIEW_ELEMENT.md](WEBVIEW_ELEMENT.md) | `Guest` | `guest:*` |
 | Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
 | Persistent settings (`Store<T>`) | [STORE.md](STORE.md) | `Store` (name configurable) | `store:changed` |
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |

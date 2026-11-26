@@ -9,6 +9,7 @@
 #include <boson/exec/ui_marshal.hpp>
 #include <boson/ipc/export.hpp>
 #include <boson/webview/capture.hpp>
+#include <boson/webview/cdp.hpp>
 #include <boson/webview/cookies.hpp>
 #include <boson/webview/drm.hpp>
 #include <boson/webview/find.hpp>
@@ -17,6 +18,7 @@
 
 #include <glaze/glaze.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -151,6 +153,29 @@ struct ColorSchemeRequest {
 
 struct OkResponse {
     bool ok = false;
+};
+
+/// WebView.cdp_send: one Chrome DevTools Protocol command on the calling WebView.
+struct CdpCommand {
+    std::string method;
+    glz::raw_json params{"{}"};
+    std::string session_id; ///< Flattened child session (OOPIF / worker); empty = the page.
+};
+
+struct CdpCommandResult {
+    glz::raw_json result{"{}"};
+};
+
+struct CdpSubscription {
+    std::vector<std::string> events; ///< "Network.requestWillBeSent", ...
+    bool subscribe = true;
+};
+
+/// "cdp:event" payload (WebViewController::on_cdp_event).
+struct CdpEventPayload {
+    std::string method;
+    glz::raw_json params{"{}"};
+    std::string session_id;
 };
 
 /// JSON form of webview::DrmProbeOptions. Omitted fields keep the native defaults. (Optional vectors so that
@@ -311,6 +336,12 @@ public:
     /// Called on the UI thread whenever the find match count or active match changes, e.g.
     /// ctl.on_find_state = [&](const FindStatus& s) { bridge.emit_to(wv.id(), WebViewController::kFindEvent, s); };
     std::function<void(const FindStatus&)> on_find_state;
+
+    /// Event name suggested for forwarding on_cdp_event through Bridge::emit_to.
+    static constexpr std::string_view kCdpEvent = "cdp:event";
+    /// Called on the UI thread for every CDP event subscribed through cdp_subscribe, e.g.
+    /// ctl.on_cdp_event = [&](const CdpEventPayload& e) { bridge.emit_to(wv.id(), WebViewController::kCdpEvent, e); };
+    std::function<void(const CdpEventPayload&)> on_cdp_event;
 
     // ---- Print -----------------------------------------------------------------------------------------
     [[nodiscard]] OkResponse show_print_ui(PrintUiRequest req) const {
@@ -520,7 +551,66 @@ public:
             "WebView.probe_drm");
     }
 
+    // ---- Chrome DevTools Protocol ------------------------------------------------------------------------
+    /// Runs a CDP command on this WebView (CallDevToolsProtocolMethod[ForSession]); resolves with its result.
+    [[nodiscard]] CdpCommandResult cdp_send(CdpCommand req) {
+        if (req.method.empty()) {
+            throw std::invalid_argument("method must not be empty");
+        }
+        struct Outcome {
+            bool ok = false;
+            std::string json;
+        };
+        const std::string params = req.params.str.empty() ? std::string("{}") : req.params.str;
+        const auto outcome = await_ui<Outcome>(
+            [this, method = req.method, params, session = req.session_id](std::function<void(HRESULT, Outcome)> done) {
+                return cdp().call(method, params, [done](bool ok, std::string json) { done(S_OK, Outcome{.ok = ok, .json = std::move(json)}); }, session);
+            },
+            "WebView.cdp_send");
+        if (!outcome.ok) {
+            struct ErrorBody {
+                std::int32_t code = 0;
+                std::string message;
+            } err;
+            (void)glz::read<glz::opts{.error_on_unknown_keys = false}>(err, outcome.json);
+            throw std::runtime_error(err.message.empty() ? outcome.json : err.message);
+        }
+        return CdpCommandResult{.result = glz::raw_json{outcome.json}};
+    }
+
+    /// Adds (or removes) CDP event subscriptions; events reach on_cdp_event ("cdp:event").
+    [[nodiscard]] OkResponse cdp_subscribe(CdpSubscription req) {
+        return OkResponse{.ok = m_marshal.invoke_sync([this, &req]() {
+            webview::Cdp& c = cdp();
+            for (const auto& event : req.events) {
+                const auto it = std::ranges::find(m_cdp_subs, event, &std::pair<std::string, webview::Cdp::SubscriptionId>::first);
+                if (req.subscribe && it == m_cdp_subs.end()) {
+                    const auto id = c.subscribe(event, [this](std::string_view method, std::string_view params, std::string_view session) {
+                        if (on_cdp_event) {
+                            on_cdp_event(CdpEventPayload{.method = std::string(method), .params = glz::raw_json{std::string(params)}, .session_id = std::string(session)});
+                        }
+                    });
+                    if (id != 0) {
+                        m_cdp_subs.emplace_back(event, id);
+                    }
+                } else if (!req.subscribe && it != m_cdp_subs.end()) {
+                    c.unsubscribe(it->second);
+                    m_cdp_subs.erase(it);
+                }
+            }
+            return true;
+        })};
+    }
+
 private:
+    /// UI thread only. Created on first use.
+    webview::Cdp& cdp() {
+        if (!m_cdp) {
+            m_cdp = std::make_unique<webview::Cdp>(m_webview);
+        }
+        return *m_cdp;
+    }
+
     template <typename T>
     struct Pending {
         std::mutex mutex;
@@ -608,6 +698,8 @@ private:
     exec::UiMarshal& m_marshal;
     std::chrono::milliseconds m_timeout;
     std::unique_ptr<webview::FindSession> m_find;   // UI thread only
+    std::unique_ptr<webview::Cdp> m_cdp;            // UI thread only
+    std::vector<std::pair<std::string, webview::Cdp::SubscriptionId>> m_cdp_subs; // UI thread only
     Microsoft::WRL::ComPtr<ICoreWebView2> m_find_owner; // the ICoreWebView2 m_find is bound to
 };
 
@@ -634,5 +726,7 @@ struct glz::meta<boson::ipc::WebViewController> {
         "clear_data", &T::clear_data,
         "get_profile", &T::get_profile,
         "set_color_scheme", &T::set_color_scheme,
-        "probe_drm", &T::probe_drm);
+        "probe_drm", &T::probe_drm,
+        "cdp_send", &T::cdp_send,
+        "cdp_subscribe", &T::cdp_subscribe);
 };

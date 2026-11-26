@@ -59,6 +59,8 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Auto-Updater | `autoUpdater` / `electron-updater` | `tauri-plugin-updater` (Ed25519) | `shipping::Updater` (manifest, staged rollout, resume, SHA-256 + ECDSA P-256 signatures, rollback) |
 | **WebView** | Print / PDF / capture / find | `webContents.print` / `printToPDF` / `capturePage` / `findInPage` | Partial (plugins) | `webview::print`, `print_to_pdf`, `capture_preview`, `FindSession` + `WebView.*` JS |
 | | Cookies, profiles, clear data, proxy | `session` | Partial | `webview` cookies, named/InPrivate profiles, `clear_browsing_data`, `ProxyConfig` |
+| | Embedded guest pages (`<webview>` tag) | `<webview>` / `WebContentsView` | — | `<boson-webview>` + `webview::Guest` / `GuestManager` (partitions, preload, popups, downloads, permissions, auth, certificates) |
+| | DevTools Protocol / automation | `webContents.debugger`, `--remote-debugging-port` | — | `webview::Cdp` (C++ / `WebView.cdp_send`, `cdp:event`) + `CdpServer` loopback endpoint for Playwright `connectOverCDP` |
 | **Shell** | Taskbar progress / overlay / thumbnail buttons / jump lists | `setProgressBar`, `setOverlayIcon`, `setThumbarButtons`, `setJumpList` | — | `shell::Taskbar`, `set_jump_list` |
 | | Native caption buttons + accessibility | `titleBarOverlay` | — | `titlebar::Titlebar` (drawn caption buttons, Snap Layouts, UIA, system menu, theme events) |
 | **Processes** | Child processes, sidecars, utility processes | `child_process` (Node) + `utilityProcess` | `tauri-plugin-shell` (`Command`, `sidecar`) | `process::ProcessManager` (no-shell argv, IOCP pipes, extra fds, kill-on-close job, kill tree), `Sidecar` (ready checks, backoff restart, graceful stop), named pipes, `Process.*` behind an executable allow-list + `compat/child_process.ts` / `utilityProcess` |
@@ -79,6 +81,7 @@ Done (see the module docs):
 - File drop, zero-copy binary IPC, Range streaming: [TRANSFER.md](TRANSFER.md)
 - Terminals (ConPTY, flow control, xterm.js wiring, node-pty shim): [TERMINAL.md](TERMINAL.md)
 - Print/PDF, capture, find, cookies, profiles, proxy, auth/certificate events: [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md)
+- `<boson-webview>` element (Electron `<webview>`), guest hooks, CDP and the Playwright endpoint: [WEBVIEW_ELEMENT.md](WEBVIEW_ELEMENT.md)
 - Capabilities, CSP, safe storage, credentials, scoped FS: [SECURITY.md](SECURITY.md)
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
