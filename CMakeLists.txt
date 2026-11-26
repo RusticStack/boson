@@ -52,6 +52,14 @@ add_library(boson_core STATIC
     src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
+    src/shell/app_id.cpp
+    src/shell/icon.cpp
+    src/shell/taskbar.cpp
+    src/shell/jump_list.cpp
+    src/shell/toast.cpp
+    src/shell/toast_activation.cpp
+    src/shell/power.cpp
+    src/shell/auto_launch.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -97,6 +105,9 @@ target_link_libraries(boson_core
         user32
         gdi32
         shell32
+        propsys
+        runtimeobject
+        wtsapi32
 )
 
 add_executable(boson_demo WIN32
@@ -128,3 +139,12 @@ add_executable(boson_integration_tests
 target_link_libraries(boson_integration_tests PRIVATE boson_core)
 add_test(NAME boson_integration_tests COMMAND boson_integration_tests)
 set_tests_properties(boson_integration_tests PROPERTIES LABELS integration TIMEOUT 180)
+
+# Taskbar, jump list, toasts, power and auto-launch. Opens one small window (SW_SHOWNOACTIVATE) and shows
+# silent toasts; every registry value / shortcut it creates is unique per run and removed before exit.
+add_executable(boson_shell_integration_tests
+    tests/test_shell_integration.cpp
+)
+target_link_libraries(boson_shell_integration_tests PRIVATE boson_core)
+add_test(NAME boson_shell_integration_tests COMMAND boson_shell_integration_tests)
+set_tests_properties(boson_shell_integration_tests PROPERTIES LABELS integration TIMEOUT 180)
