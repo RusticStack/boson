@@ -10,6 +10,7 @@
 #include <boson/ipc/export.hpp>
 #include <boson/webview/capture.hpp>
 #include <boson/webview/cookies.hpp>
+#include <boson/webview/drm.hpp>
 #include <boson/webview/find.hpp>
 #include <boson/webview/print.hpp>
 #include <boson/webview/profile.hpp>
@@ -151,6 +152,63 @@ struct ColorSchemeRequest {
 struct OkResponse {
     bool ok = false;
 };
+
+/// JSON form of webview::DrmProbeOptions. Omitted fields keep the native defaults. (Optional vectors so that
+/// a list sent by JS replaces the default list instead of being merged into its elements.)
+struct DrmProbeRequest {
+    std::optional<std::vector<webview::DrmKeySystemQuery>> key_systems;
+    std::optional<std::vector<webview::DrmCodec>> video_codecs;
+    std::optional<std::vector<webview::DrmCodec>> audio_codecs;
+    std::optional<std::vector<std::string>> encryption_schemes;
+    std::optional<bool> create_media_keys;
+    std::optional<bool> check_hdcp;
+    std::optional<std::uint32_t> timeout_ms;
+};
+
+/// @brief Applies a request on top of the defaults; throws std::invalid_argument on out-of-range values.
+[[nodiscard]] inline webview::DrmProbeOptions to_drm_probe_options(DrmProbeRequest req) {
+    webview::DrmProbeOptions o;
+    if (req.key_systems) {
+        o.key_systems = std::move(*req.key_systems);
+    }
+    if (req.video_codecs) {
+        o.video_codecs = std::move(*req.video_codecs);
+    }
+    if (req.audio_codecs) {
+        o.audio_codecs = std::move(*req.audio_codecs);
+    }
+    if (req.encryption_schemes) {
+        o.encryption_schemes = std::move(*req.encryption_schemes);
+    }
+    o.create_media_keys = req.create_media_keys.value_or(o.create_media_keys);
+    o.check_hdcp = req.check_hdcp.value_or(o.check_hdcp);
+    o.timeout_ms = req.timeout_ms.value_or(o.timeout_ms);
+    if (o.timeout_ms == 0 || o.timeout_ms > 60000) {
+        throw std::invalid_argument("timeout_ms must be between 1 and 60000");
+    }
+    if (o.key_systems.empty() || o.key_systems.size() > 32) {
+        throw std::invalid_argument("key_systems must list between 1 and 32 queries");
+    }
+    if (o.video_codecs.empty()) {
+        throw std::invalid_argument("video_codecs must not be empty");
+    }
+    for (const auto& q : o.key_systems) {
+        if (q.key_system.empty()) {
+            throw std::invalid_argument("key_system must not be empty");
+        }
+    }
+    for (const auto& c : o.video_codecs) {
+        if (c.content_type.empty()) {
+            throw std::invalid_argument("video_codecs[].content_type must not be empty");
+        }
+    }
+    for (const auto& c : o.audio_codecs) {
+        if (c.content_type.empty()) {
+            throw std::invalid_argument("audio_codecs[].content_type must not be empty");
+        }
+    }
+    return o;
+}
 
 /// @brief Converts the JSON print options; throws std::invalid_argument on unknown names or invalid values.
 [[nodiscard]] inline webview::PrintSettings to_print_settings(const PrintOptions& o) {
@@ -450,6 +508,18 @@ public:
         return OkResponse{.ok = m_marshal.invoke_sync([this, s = *scheme]() { return webview::set_preferred_color_scheme(m_webview, s); })};
     }
 
+    // ---- DRM capability probe ---------------------------------------------------------------------------
+    /// Runs webview::probe_drm in the calling WebView's top document. Omitted fields keep the defaults
+    /// (PlayReady SL3000/SL2000, Widevine HW/SW, Clear Key; avc1/hev1/vp09/av01; cenc/cbcs).
+    [[nodiscard]] webview::DrmProbeResult probe_drm(DrmProbeRequest request) const {
+        webview::DrmProbeOptions req = to_drm_probe_options(std::move(request));
+        return await_ui<webview::DrmProbeResult>(
+            [this, req = std::move(req)](std::function<void(HRESULT, webview::DrmProbeResult)> done) {
+                return webview::probe_drm(m_webview, req, std::move(done));
+            },
+            "WebView.probe_drm");
+    }
+
 private:
     template <typename T>
     struct Pending {
@@ -563,5 +633,6 @@ struct glz::meta<boson::ipc::WebViewController> {
         "delete_all_cookies", &T::delete_all_cookies,
         "clear_data", &T::clear_data,
         "get_profile", &T::get_profile,
-        "set_color_scheme", &T::set_color_scheme);
+        "set_color_scheme", &T::set_color_scheme,
+        "probe_drm", &T::probe_drm);
 };

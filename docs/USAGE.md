@@ -267,7 +267,7 @@ boson::core::EnvironmentConfig cfg;
 cfg.user_data_folder = L"C:\\Users\\me\\AppData\\Local\\MyApp\\WebView2";
 cfg.additional_browser_arguments = {L"--autoplay-policy=no-user-gesture-required"};
 cfg.enable_features  = {L"msWebView2EnableDraggableRegions"};
-cfg.disable_features = {L"HardwareSecureDecryption"};
+cfg.disable_features = {L"msSmartScreenProtection"};   // see COMPOSITION_DRM_SPIKE.md for the DRM flags
 cfg.language = L"pt-PT";
 cfg.enable_tracking_prevention = true;      // optionals left unset keep the runtime default
 auto env = boson::core::Environment::create(cfg);
@@ -291,7 +291,7 @@ env->set_browser_process_exited_callback([](const boson::core::BrowserProcessExi
 
 - layout on `WM_SIZE` and `WM_DPICHANGED`;
 - `NotifyParentWindowPositionChanged` on every move;
-- hiding controllers while the window is minimized;
+- hiding controllers while the window is minimized (`WebView::set_keep_visible_when_minimized(true)` opts a WebView out);
 - z-order.
 
 ```cpp
@@ -310,7 +310,14 @@ host.set_layout([&](boson::core::WebViewHost&, const boson::core::LayoutContext&
 content.set_visible(false);   // hidden WebViews are throttled
 header.bring_to_front();
 host.destroy(content);        // safe from inside content's own callbacks
+content.set_keep_visible_when_minimized(true);   // media apps: keep playing while the window is minimized
 ```
+
+A hidden controller (`IsVisible = false`) is a background page to the runtime. On runtime 158, hidden PlayReady SL3000
+video is paused (the only PlayReady level tested this way), and its audio stops with it. Widevine video keeps playing. Media apps should
+call `set_keep_visible_when_minimized(true)` on the WebView that plays, and should not hide it with `set_visible(false)`
+while it plays; see [COMPOSITION_DRM_SPIKE.md](COMPOSITION_DRM_SPIKE.md#fullscreen-background-playback-and-screen-sharing).
+PlayReady audio is not reported by `IsDocumentPlayingAudio`, so `SleepPolicy` treats a hidden PlayReady tab as silent.
 
 In windowed mode each WebView lives inside a `BosonWebViewContainer` child HWND. The container is what provides z-order and bounds. Third-party content should set `settings.web_messages_enabled = false` and should not be attached to a `Bridge`.
 
@@ -394,7 +401,7 @@ For Windows 11 Snap Layouts on a custom maximize button, call `boson.registerMax
 
 `WebViewHost(window, env, HostingMode::Composition)` renders WebViews through `ICoreWebView2CompositionController` into a DirectComposition tree. WebViews can then overlap with real alpha (`set_opacity`, `set_corner_radius`, transparent backgrounds), which is how `boson_browser --composition` draws a translucent modal over a playing video. The host forwards mouse, wheel and cursor input and maps CSS app-regions to `WM_NCHITTEST`.
 
-Windowed hosting stays the default. Protected-content playback and MPO behaviour under composition hosting have not been verified; see [Composition & DRM spike](COMPOSITION_DRM_SPIKE.md).
+Windowed hosting stays the default. PlayReady SL3000 playback was measured in both hosting modes on one discrete-GPU machine (no iGPU machine was tested); see [Composition & DRM spike](COMPOSITION_DRM_SPIKE.md) for the results, the caveats and the `EnvironmentConfig` flags that matter. `webview::probe_drm` / `webview.probeDrm()` report which key system and robustness a WebView actually gets ([WebView features](WEBVIEW_FEATURES.md#drm-capability-probe-bosonwebviewdrmhpp)).
 
 ## 17. Lifecycle: Relaunch, Single Instance, Graceful Quit
 
@@ -419,7 +426,7 @@ boson::app::relaunch({.extra_args = {L"--screenshare"}, .remove_args = {L"--scre
 ## 18. Tests and Examples
 
 - `boson_tests`: unit tests (no WebView2 runtime needed).
-- `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
+- `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, minimize visibility and `set_keep_visible_when_minimized`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
 - `boson_browser [--composition] [--screenshare] [url...]` is a multi-tab browser built on all of the above. Set `BOSON_BROWSER_LOG=<file>` to capture its event log.
 
 ## 19. Platform Modules

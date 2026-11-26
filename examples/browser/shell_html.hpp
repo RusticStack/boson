@@ -66,7 +66,7 @@ function render(s) {
   const a = s.tabs.find((t) => t.id === s.active);
   if (a && document.activeElement !== $('url')) $('url').value = a.url || '';
   $('back').disabled = !s.can_go_back; $('fwd').disabled = !s.can_go_forward;
-  $('mode').textContent = 'Hosting: ' + s.hosting + '. Screenshare mode: ' + (s.screenshare_mode ? 'ON (hardware secure decryption disabled, so protected video can be captured)' : 'off (hardware DRM available)') + '.';
+  $('mode').textContent = 'Hosting: ' + s.hosting + '. Screenshare mode: ' + (s.screenshare_mode ? 'ON (DirectComposition off: PlayReady unavailable, Widevine video can be screen-shared)' : 'off (hardware DRM available)') + '.';
   document.body.classList.toggle('modal', s.modal);
 }
 on('tabs:updated', render);

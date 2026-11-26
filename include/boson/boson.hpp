@@ -36,6 +36,7 @@
 
 #include <boson/webview/capture.hpp>
 #include <boson/webview/cookies.hpp>
+#include <boson/webview/drm.hpp>
 #include <boson/webview/find.hpp>
 #include <boson/webview/print.hpp>
 #include <boson/webview/profile.hpp>

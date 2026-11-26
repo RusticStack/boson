@@ -5,7 +5,8 @@
 // One shared Environment; a 40-DIP chrome WebView (shell_html.hpp) on top and one content WebView per tab.
 // window.open becomes a new tab, page fullscreen fills the window, hidden tabs sleep after five minutes,
 // a second launch forwards its URLs here, and "screenshare mode" re-creates the browser process with
-// hardware secure decryption disabled (in place, or by relaunching the executable).
+// --disable-direct-composition so DRM video can be shared in Discord/Teams (in place, or by relaunching the
+// executable). A minimized window keeps playing (WebView::set_keep_visible_when_minimized).
 #include <windows.h>
 #include <objbase.h>
 
@@ -286,10 +287,18 @@ public:
         app::relaunch(std::move(options), {m_host.environment()});
     }
 
+    /// Screen sharing (Discord, Teams, OBS) of DRM video. Measured on runtime 158 (docs/COMPOSITION_DRM_SPIKE.md):
+    /// - PlayReady video (SL3000 and SL2000) is never capturable.
+    /// - Widevine is drawn into a display-only DirectComposition overlay that capture skips.
+    /// --disable-direct-composition fixes both: PlayReady becomes unavailable, so sites fall back to Widevine,
+    /// and Widevine is composited into the normal swap chain, where DXGI and Windows.Graphics.Capture see it.
+    /// The GPU stays on (unlike --disable-gpu).
     static void apply_screenshare(core::EnvironmentConfig& cfg, bool enabled) {
-        auto& disabled = cfg.disable_features;
-        std::erase(disabled, std::wstring{L"HardwareSecureDecryption"});
-        if (enabled) disabled.emplace_back(L"HardwareSecureDecryption");
+        auto& args = cfg.additional_browser_arguments;
+        std::erase(args, std::wstring{L"--disable-direct-composition"});
+        if (enabled) {
+            args.emplace_back(L"--disable-direct-composition");
+        }
     }
 
     [[nodiscard]] BrowserState state() const {
@@ -364,6 +373,9 @@ private:
 
     void wire_events(core::WebView& webview) {
         const std::uint64_t id = webview.id();
+        // A minimized browser keeps playing media: with the controller hidden, the runtime pauses
+        // hardware-DRM (PlayReady) video, and its audio with it. Hidden tabs are still hidden by set_visible.
+        webview.set_keep_visible_when_minimized(true);
         auto& ev = webview.events();
         ev.on_title_changed = [this, id](std::string_view title) {
             if (Tab* t = find(id)) { t->info.title = title; publish(); }

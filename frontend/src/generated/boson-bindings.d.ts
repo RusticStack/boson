@@ -955,6 +955,65 @@ export interface ColorSchemeRequest {
     scheme: string;
 }
 
+export interface DrmCapability {
+    codec: string;
+    content_type: string;
+    encryption_scheme: string;
+    robustness: string;
+}
+
+export interface DrmKeySystemResult {
+    id: string;
+    key_system: string;
+    robustness: string;
+    hardware: boolean;
+    supported: boolean;
+    video: Array<DrmCapability>;
+    audio: Array<DrmCapability>;
+    init_data_types: Array<string>;
+    session_types: Array<string>;
+    persistent_state: string;
+    distinctive_identifier: string;
+    media_keys_created?: boolean | null;
+    hdcp_2_2: string;
+    error: string;
+    elapsed_ms: number;
+}
+
+export interface DrmProbeResult {
+    secure_context: boolean;
+    eme_available: boolean;
+    origin: string;
+    user_agent: string;
+    key_systems: Array<DrmKeySystemResult>;
+    protection: string;
+    best: string;
+    error: string;
+}
+
+export interface DrmKeySystemQuery {
+    id: string;
+    key_system: string;
+    robustness: string;
+    audio_robustness: string;
+    hardware: boolean;
+}
+
+export interface DrmCodec {
+    name: string;
+    content_type: string;
+}
+
+export interface DrmProbeRequest {
+    key_systems?: Array<DrmKeySystemQuery> | null;
+    video_codecs?: Array<DrmCodec> | null;
+    audio_codecs?: Array<DrmCodec> | null;
+    encryption_schemes?: Array<string> | null;
+    create_media_keys?: boolean | null;
+    check_hdcp?: boolean | null;
+    timeout_ms?: number | null;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -1227,6 +1286,7 @@ export interface BosonApi {
     "WebView.clear_data": (params: ClearDataRequest) => Promise<OkResponse>;
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
+    "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
 }
 
 export interface BosonEvents {

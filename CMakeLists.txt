@@ -78,6 +78,7 @@ add_library(boson_core STATIC
     src/webview/profile.cpp
     src/webview/proxy.cpp
     src/webview/security_events.cpp
+    src/webview/drm.cpp
     src/desktop/hidden_window.cpp
     src/desktop/clipboard.cpp
     src/desktop/shell.cpp
@@ -206,6 +207,13 @@ add_executable(boson_tsgen
     tools/tsgen/main.cpp
 )
 target_link_libraries(boson_tsgen PRIVATE boson_core)
+
+# Hardware-DRM verification spike (issue #15): plays public PlayReady test streams in windowed and composition
+# hosting and records playback / capture evidence. Manual tool: needs network, a GPU and a real display.
+add_executable(boson_drm_spike
+    tools/drm_spike/main.cpp
+)
+target_link_libraries(boson_drm_spike PRIVATE boson_core d3d11 dxgi dwmapi runtimeobject)
 
 # ECDSA P-256 key generation / update signing for boson::shipping::Updater.
 add_executable(boson_updater_sign

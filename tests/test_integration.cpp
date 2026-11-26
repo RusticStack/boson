@@ -374,6 +374,36 @@ int main() {
     host->check_sleep_now();
     IT_CHECK(pump_until([&]() { return b.is_suspended() == std::optional<bool>{false}; }, std::chrono::seconds{5}));
 
+    // A minimized window hides its WebViews' controllers (page visibilityState "hidden") unless the WebView
+    // opts out with set_keep_visible_when_minimized, which media apps need (docs/COMPOSITION_DRM_SPIKE.md).
+    step("minimize: controller hidden unless keep_visible_when_minimized");
+    const auto controller_visible = [](boson::core::WebView& w) {
+        BOOL visible = FALSE;
+        return w.controller() != nullptr && SUCCEEDED(w.controller()->get_IsVisible(&visible)) && visible != FALSE;
+    };
+    const auto visibility_is = [&](std::string_view state) {
+        return pump_until([&]() { return eval(b, "document.visibilityState") == std::optional<std::string>{"\"" + std::string(state) + "\""}; },
+                          std::chrono::seconds{5});
+    };
+    IT_CHECK(controller_visible(b));
+    ShowWindow(window->hwnd(), SW_SHOWMINNOACTIVE);
+    IT_CHECK(pump_until([&]() { return window->is_minimized(); }, std::chrono::seconds{5}));
+    IT_CHECK(!controller_visible(b));
+    IT_CHECK(visibility_is("hidden"));
+    b.set_keep_visible_when_minimized(true);
+    IT_CHECK(b.keep_visible_when_minimized());
+    IT_CHECK(controller_visible(b));
+    IT_CHECK(visibility_is("visible"));
+    b.set_keep_visible_when_minimized(false);
+    IT_CHECK(!controller_visible(b));
+    b.set_keep_visible_when_minimized(true);
+    ShowWindow(window->hwnd(), SW_SHOWNOACTIVATE);
+    IT_CHECK(pump_until([&]() { return !window->is_minimized(); }, std::chrono::seconds{5}));
+    IT_CHECK(controller_visible(b));
+    b.set_keep_visible_when_minimized(false);
+    IT_CHECK(controller_visible(b));
+    IT_CHECK(visibility_is("visible"));
+
     // ---- #6: NewWindowRequested redirected into a new Boson WebView ----------------------------------
     step("NewWindowRequested -> new WebView");
     boson::core::WebView* popup = nullptr;
