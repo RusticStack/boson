@@ -22,9 +22,15 @@
 #include <boson/ipc/router.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
+#include <boson/ipc/controllers/transfer_controller.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
+
+#include <boson/transfer/base64.hpp>
+#include <boson/transfer/binary_transport.hpp>
+#include <boson/transfer/file_drop.hpp>
+#include <boson/transfer/stream_server.hpp>
 
 #include <boson/app/lifecycle.hpp>
 

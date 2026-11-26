@@ -84,6 +84,19 @@ public:
     using MessageCallback = std::function<void(std::string_view json_payload, std::string_view source_uri)>;
     using ReadyCallback = std::function<void()>;
 
+    /// @brief A raw WebMessageReceived event as seen by observers. args stays valid only during the call.
+    struct WebMessage {
+        std::string_view json;
+        std::string_view source_uri;
+        ICoreWebView2WebMessageReceivedEventArgs* args = nullptr;
+    };
+    /// Runs before the message callback; return true to consume the message (it then never reaches the Bridge).
+    using WebMessageObserver = std::function<bool(const WebMessage& message)>;
+    /// Runs before the boson://app asset handler; return true when it set a response (or took a deferral).
+    using ResourceRequestHandler =
+        std::function<bool(std::string_view uri, ICoreWebView2WebResourceRequestedEventArgs* args)>;
+    using HookId = std::uint64_t;
+
     /// @brief Single-WebView form: creates a private Environment from config.environment on initialize().
     explicit WebView(WebViewConfig config = {});
     /// @brief Shares env with other WebViews: one browser process tree for all of them.
@@ -116,6 +129,14 @@ public:
 
     void set_message_callback(MessageCallback cb) { m_on_message = std::move(cb); }
     void set_ready_callback(ReadyCallback cb) { m_on_ready = std::move(cb); }
+
+    /// @brief Adds a message observer that survives Environment::recreate (UI thread). Safe inside a callback.
+    HookId add_web_message_observer(WebMessageObserver observer);
+    bool remove_web_message_observer(HookId id) noexcept;
+    /// @brief Adds a WebResourceRequested filter (e.g. L"boson://media/*") and its handler. The filter is
+    /// re-registered whenever the controller is re-created.
+    HookId add_resource_handler(std::wstring uri_filter, ResourceRequestHandler handler);
+    bool remove_resource_handler(HookId id) noexcept;
 
     // ---- Layout, visibility, z-order (#3) ---------------------------------------------------------------
     /// @brief Fills {0,0,width,height} of the parent client area.
@@ -214,6 +235,8 @@ private:
     void register_event_handlers();
     void unregister_event_handlers() noexcept;
     void apply_bounds() noexcept;
+    bool dispatch_web_message(const WebMessage& message);
+    bool dispatch_resource_request(ICoreWebView2WebResourceRequestedEventArgs* args, std::string_view uri);
     void apply_visibility() noexcept;
     void raise_caption_overlay() const noexcept;
     void release_controller() noexcept;
@@ -232,6 +255,20 @@ private:
     ReadyCallback m_on_ready;
     WebViewEventHandlers m_events;
     std::function<void()> m_on_cursor_changed;
+
+    struct MessageObserverEntry {
+        HookId id = 0;
+        WebMessageObserver fn;
+    };
+    struct ResourceHandlerEntry {
+        HookId id = 0;
+        std::wstring filter;
+        ResourceRequestHandler fn;
+    };
+    std::vector<MessageObserverEntry> m_message_observers;
+    std::vector<ResourceHandlerEntry> m_resource_handlers;
+    HookId m_next_hook_id = 1;
+    int m_hook_dispatch_depth = 0;
 
     Microsoft::WRL::ComPtr<ICoreWebView2Controller> m_controller;
     Microsoft::WRL::ComPtr<ICoreWebView2CompositionController> m_composition_controller;

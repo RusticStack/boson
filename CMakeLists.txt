@@ -52,6 +52,10 @@ add_library(boson_core STATIC
     src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
+    src/transfer/base64.cpp
+    src/transfer/binary_transport.cpp
+    src/transfer/file_drop.cpp
+    src/transfer/stream_server.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -128,3 +132,12 @@ add_executable(boson_integration_tests
 target_link_libraries(boson_integration_tests PRIVATE boson_core)
 add_test(NAME boson_integration_tests COMMAND boson_integration_tests)
 set_tests_properties(boson_integration_tests PROPERTIES LABELS integration TIMEOUT 180)
+
+# File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
+# the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
+add_executable(boson_transfer_tests
+    tests/test_transfer.cpp
+)
+target_link_libraries(boson_transfer_tests PRIVATE boson_core)
+add_test(NAME boson_transfer_tests COMMAND boson_transfer_tests)
+set_tests_properties(boson_transfer_tests PROPERTIES TIMEOUT 300)

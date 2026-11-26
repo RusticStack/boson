@@ -358,6 +358,12 @@ void WebView::configure_new_controller() {
         BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(L"boson://app/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
     }
 
+    for (const auto& handler : m_resource_handlers) {
+        if (handler.id != 0) {
+            BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(handler.filter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+        }
+    }
+
     for (const auto& script : m_config.scripts_on_document_created) {
         BOSON_HR_CHECK(m_webview->AddScriptToExecuteOnDocumentCreated(script.c_str(), nullptr));
     }
