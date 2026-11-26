@@ -1,9 +1,6 @@
 # Performance
 
-Findings of the optimisation pass, one self-contained section per area. Measurements are on Windows 11 Pro 10.0.26300,
-Intel Core i7-13700KF (24 logical CPUs), MSVC 19.52 (VS 18), WebView2 runtime 158.0.4370.33. Other agents built and ran
-UI tests on the same machine the whole time, so wall-clock numbers carry heavy noise; sizes (bytes), section/object
-contributions and process counts are exact and are the primary evidence in this section.
+Findings of the optimisation pass, one self-contained section per area. Measured on Windows 11 Pro 10.0.26300, Intel Core i7-13700KF (24 logical CPUs), MSVC 19.52, WebView2 runtime 158.0.4370.33. Several areas were measured while other builds ran on the same machine; each section says which numbers are noise-sensitive. Final cross-framework numbers are in [BENCHMARKS.md](BENCHMARKS.md).
 
 ## Build configuration, binary size and codegen
 
@@ -154,7 +151,7 @@ exe and fails for anything outside the allow-list of Windows system DLLs (and `a
 api-ms-win-core-synch); the same check run against the `/MD` build fails and names `MSVCP140.dll;MSVCP140_ATOMIC_WAIT.dll;
 VCRUNTIME140_1.dll;VCRUNTIME140.dll`.
 
-## Verification
+### Verification
 
 Verified:
 
@@ -191,14 +188,14 @@ Not verified:
   `D:\Projects\Boson\build\wt`, and both passed in the Release `/GR-` run, so they are environmental, not caused by this
   change; `boson_store_tests` failed once under load and passed on re-run.
 - clang-cl, `/favor`, asset compression, JS minification: not done (reasons above).
-Findings of the optimisation pass, one section per area. Numbers are from the machine described in
-[BENCHMARKS.md](BENCHMARKS.md) (Windows 11 26H2, i7-13700KF, WebView2 158.0.4370.33) while other agents were building
-and testing on it, so wall-clock figures carry real noise; allocation counts, bytes and wake-ups are exact and are the
-numbers to trust.
+
 ## IPC hot path
+
 Scope: WebMessageReceived string handling, Bridge, Router, TaskRunner / UiMarshal, glaze (de)serialisation, event emit,
 PostWebMessageAsJson, the `frontend/src/boson.ts` runtime and (indirectly) the SyncBridge.
+
 ### How it was measured
+
 - **`boson_ipc_bench`** (`tests/bench_ipc.cpp`, Release + LTO): replaces global `operator new` to count allocations and bytes
   across all threads, and counts UI wake-ups. It drives `Router::dispatch_sync`, the front half of `Bridge::on_web_message`
   (origin check + capability header peek), `Router::dispatch_async` -> stdexec pool -> `UiMarshal` -> drain (the bench thread
@@ -209,8 +206,11 @@ PostWebMessageAsJson, the `frontend/src/boson.ts` runtime and (indirectly) the S
 - **`boson_bench_app`** (examples/bench_app, driven by `boson_bench --load-signal`): real WebView2 end to end. It gained an
   `events_20k` scenario (20 000 events emitted from the pool, counted in the page, 3 repetitions) and a `--batch-events` flag.
   5 interleaved runs per variant.
+
 ### Native hot path, before -> after (per call)
+
 | Scenario | ns/op base | ns/op new | allocs base -> new | bytes base -> new | UI wakes base -> new |
+|---|---:|---:|---:|---:|---:|
 | `Router::dispatch_sync` ping | 318 (224-378) | 271 (241-318) | 3 -> 1 | 1136 -> 64 | - |
 | `dispatch_sync` void, no params | 214 | 195 | 2 -> 1 | 608 -> 64 | - |
 | `dispatch_sync` echo 1 KiB | 1233 | 1086 | 7 -> 2 | 11 607 -> 2 128 | - |
@@ -227,10 +227,13 @@ PostWebMessageAsJson, the `frontend/src/boson.ts` runtime and (indirectly) the S
 | `utf8_to_wide`, 1 MiB (fresh string) | 1.13 ms | 0.81 ms | 1 -> 1 | - | - |
 | `utf8_to_wide_into`, 1 MiB (reused buffer) | n/a | 0.12 ms | 0 | - | - |
 | `wide_to_utf8_into`, 1 MiB (reused buffer) | n/a | 0.19 ms | 0 | - | - |
+
 (The sequential round trip is dominated by waking a sleeping pool thread and the bench's event wait, ~15 us, which
 neither side changed; the allocation columns are exact, the ns columns are noisy. A fresh 1 MiB string costs ~0.6 ms of
 page faults on its own, which is why the large-message paths reuse buffers.)
+
 ### End to end (real WebView2, `boson_bench_app`, 5 interleaved runs, median [min-max])
+
 | Metric | base | new | new + `--batch-events` |
 |---|---:|---:|---:|
 | ping, 1000 sequential, mean (ms) | 0.098 [0.079-1.194] | 0.101 [0.070-0.155] | (same path) |
@@ -239,11 +242,14 @@ page faults on its own, which is why the large-message paths reuse buffers.)
 | 10 MiB upload (ms) | 126.2 [98.9-158.1] | 113.5 [97.1-219.0] | 95.8 [94.1-114.6] |
 | 10 MiB download (ms) | 154.6 [124.6-157.8] | 126.6 [121.6-344.0] | 137.4 [125.3-142.0] |
 | 10 MiB echo (ms) | 275.4 [247.6-290.5] | 239.6 [209.9-471.5] | 239.4 [222.4-415.3] |
+
 Honest reading: ping latency and concurrent-call throughput did not move beyond the noise (the ~0.08 ms round trip is
 mostly WebView2/Chromium message plumbing and a thread-pool hop; the native part is a few microseconds). What moved:
 large payloads (-10 to -15 %), allocations, bytes, UI-thread wake-ups, and event throughput (x3.8 with batching, which is
 opt-in). The 0.098 ms vs the 0.076 ms in BENCHMARKS.md is machine noise (the earlier run was on a quiet machine).
+
 ### What changed and why
+
 1. **One parse instead of four.** A request used to be parsed by the capability peek, by `dispatch_async` (header, on the
    UI thread), and by `dispatch_sync` (full, owning copies of `method` and of the whole `params` text). Now nothing is parsed
    on the UI thread besides the allocation-free capability peek (only when a policy is attached);
@@ -288,7 +294,9 @@ opt-in). The 0.098 ms vs the 0.076 ms in BENCHMARKS.md is machine noise (the ear
     gpu / terminal modules all go through `boson.on`, and the bench page does. Pages with their own raw
     `chrome.webview.addEventListener('message')` handler must handle `Array.isArray(event.data)` before enabling it.
 11. **JS runtime**: an event with a single listener no longer copies the listener set (`[...set]`) per event.
+
 ### Not changed, and why
+
 - **Capability header peek** still uses glaze (about 100 ns). It is a security decision; a hand-rolled scanner could be fooled by
   a `"method"` key inside `params` or a string, so it stays a real parse. `default`-off policy = no peek at all.
 - **stdexec `async_scope::spawn`** allocates one operation state per call (~200 B). Avoiding it would mean bypassing the
@@ -301,7 +309,9 @@ opt-in). The 0.098 ms vs the 0.076 ms in BENCHMARKS.md is machine noise (the ear
 - A fresh 1 MiB request still costs two full copies on the way in (payload copy for the worker, params -> argument string) and
   one on the way out; a zero-copy 'params as a view into the WebView2 string' would need the UTF-16 -> UTF-8 conversion to
   happen on the worker, which would pin the COM string; not attempted.
+
 ### Behaviour notes for integrators
+
 - `Router` dispatch order: static (reflected) methods are resolved first, `DynamicController`s afterwards. Previously the
   controllers were tried in declaration order, so a dynamic controller declared *before* a static one with the same
   `Controller.method` used to win; nothing in the tree does that.
@@ -310,7 +320,11 @@ opt-in). The 0.098 ms vs the 0.076 ms in BENCHMARKS.md is machine noise (the ear
   to the TaskRunner's last-resort error path (the worker lambda catches everything itself and recovers the id).
 - `WebView::post_web_message_as_json_wide` is new; `post_web_message_as_json` of an empty string now returns false instead
   of posting an invalid empty message.
+
+### Verification
+
 Verified (this machine, other agents running builds/tests concurrently):
+
 - Release (MSVC, LTO, `/W4`) builds every target warning-free (full `build\rel` build, 0 warnings).
 - Debug build of every target warning-free; `ctest`: 21 of 23 suites pass, including the new
   `boson_ipc_hotpath_tests` (2 668 checks: conversion fuzz against the Win32 APIs incl. SIMD/inline-buffer boundaries,
@@ -323,29 +337,32 @@ Verified (this machine, other agents running builds/tests concurrently):
   (`BrowserProcessExited not observed` / process-enumeration timing on a loaded machine). `boson_compat_typecheck` is
   disabled in this configuration (bun not run).
 - The numbers above; 5 interleaved runs, baseline built from the unmodified commit.
+
 - `frontend/src/boson.ts`: `bun run build` (`tsc --noEmit` + vite) passes; `boson_tsgen` output is identical to the committed
   `boson-bindings.d.ts` (the Router rewrite did not change the reflected API).
+
 Not verified: the array unpacking in `boson.ts` itself was not executed in a page (the real-WebView2 test and the bench page use
 their own listeners of the same shape); `boson_compat_typecheck` is disabled in this configuration; the Wails/Tauri/Electron comparison and the browser
 scenario (`bench/run_browser_bench.ps1`) were not re-run, so the headline numbers in BENCHMARKS.md are unchanged; startup,
 idle memory and binary size were not measured for this change (the change adds ~one small TU and removes none);
 non-ASCII-heavy payloads fall back to the Win32 conversion and were only checked for correctness, not for speed; Release-mode
 `ctest` was not run (Debug only).
-Findings of the optimisation passes, one self-contained section per area. Method for all of them: measure before, change
-one thing, measure after, keep only what wins or is neutral and simpler. The development machine (Windows 11 26300,
-i7-13700KF, WebView2 158) was shared with other builds and test runs the whole time, so wall-clock numbers swing by
-2-5x between runs. Where possible the tables therefore also give **counts of expensive operations** (window moves,
-calls into the browser process), which do not depend on load.
+
 ## Multi-view layout, rendering and streaming throughput
+
 Release + LTO (`build\rel`) unless stated. "Before" is commit 71c3757 (main) built the same way.
+
 ### 1. Native child-window layout (`<boson-webview>`, `WebViewHost`)
+
 **Where the time went** (instrumented run of the existing `apply_layout` benchmark, 9 guests, per call average):
 `SetWindowPos` of the container ~0.96 ms, `ICoreWebView2Controller::put_Bounds` ~0.77 ms (a synchronous round trip into
 the browser process), `NotifyParentWindowPositionChanged` ~0.03 ms when the browser process is idle (it is also a cross-process
 call and grows under load), `put_IsVisible` ~1.9 ms, `ShowWindow` ~0.3 ms. The old code issued SetWindowPos + put_Bounds +
 Notify for every guest on every layout, and `WebViewHost::relayout` / the browser example did it for every tab, hidden
 ones included, plus a redundant `ShowWindow` + `put_IsVisible` + `SetWindowPos(HWND_TOP)` for the shell on every layout.
+
 **What changed** (`src/core/webview.cpp`, `include/boson/core/webview.hpp`, `src/webview/guest.cpp`):
+
 | Change | Effect |
 |---|---|
 | `core::BoundsBatch` (BeginDeferWindowPos / DeferWindowPos / EndDeferWindowPos); used by `GuestManager::apply_layout`, `WebViewHost::relayout` (default layout) and `examples/browser` | N container moves become one window-manager pass; falls back to per-window `SetWindowPos` if the batch cannot be built (other parent, API failure) |
@@ -354,29 +371,36 @@ ones included, plus a redundant `ShowWindow` + `put_IsVisible` + `SetWindowPos(H
 | `NotifyParentWindowPositionChanged`: immediate for the first move after a quiet period, then at most one per 50 ms per WebView, with a trailing call 50 ms after the last move (`WM_TIMER` on the container) | continuous scroll/drag costs 1 cross-process call per burst instead of one per frame; popups opened mid-scroll get their position 50 ms after the scroll stops |
 | Bounds of a **hidden** windowed WebView are stored, applied by `set_visible(true)` | a window resize with 10 tabs touches 1 tab instead of 10 |
 | `set_visible` / `apply_visibility` skip `ShowWindow` and `put_IsVisible` when the state is unchanged; `bring_to_front` returns early when the container is already the top content window | idle-state layouts (the shell calls both every layout) issue 0 calls |
+
 Calls per layout frame, N visible guests moving (no size change), from the code paths and confirmed with the call counters
 of the instrumented run (before: 3152 SetWindowPos, 3152 put_Bounds, 3152 Notify for the same number of guest placements):
+
 | | SetWindowPos | put_Bounds | Notify | ShowWindow + put_IsVisible + bring_to_front |
 |---|---:|---:|---:|---:|
 | before | N | N | N | 1 each per layout for a shell that re-asserts its state |
 | after | 1 batch (N entries) | 0 | 0 inside a burst (1 leading + 1 trailing per WebView) | 0 |
 | resize (N visible) | 1 batch | N (needed) | N | 0 |
 | window resize, T tabs of which 1 visible | 1 batch | 1 | 1 | 0 (before: T of each) |
+
 `GuestManager::apply_layout`, 9 guests (`BOSON_WE_ONLY=element,perf boson_webview_element_tests`), us/frame, medians [min..max],
 6 runs each, interleaved A/B in the same minute (machine loaded):
+
 | | move | move + clip | resize | unchanged |
 |---|---:|---:|---:|---:|
 | before (legacy path, same binary, switch removed afterwards) | 12 547 [7 875..17 098] | 17 231 [9 603..24 168] | 13 387 [10 927..18 585] | 0.2 |
 | after (batch + skip put_Bounds + throttled notify) | 4 364 [3 038..10 237] | 13 908 [8 187..21 605] | 12 015 [7 910..14 958] | 0.2 |
 | after, later 5 runs in a quieter period | 2 600 [2 500..6 200] | 5 000 [4 650..8 500] | 6 000 [5 700..12 700] | 0.15 |
+
 Move is ~3-4x cheaper; resize is bound by `put_Bounds` (one synchronous browser-process round trip per resized guest),
 which cannot be removed; move + clip is bound by `SetWindowRgn(TRUE)` per guest (the redraw is needed to repaint what the
 clip uncovers). The < 0.5 ms/frame target was **not** reached: `EndDeferWindowPos` itself costs ~0.1-0.25 ms per window here
 (measured: 1.9-2.5 ms for 9 windows under load; `SWP_NOCOPYBITS` / `NOREDRAW` changed it by < 20 %, within noise, and `NOREDRAW`
 would leave stale pixels, `SWP_ASYNCWINDOWPOS` was 2x slower) because the window manager updates the cross-process child window
 tree of every moved container. The remaining lever is moving fewer guests per frame (hide scrolled-away guests: they cost 0).
+
 Browser scenario (`boson_bench --scenario browser`, Release+LTO, 5 runs + 1 warm-up, base and new interleaved, machine heavily
 loaded - cold-start rows swung 8x between runs and are meaningless here), Window rows:
+
 | Metric | before | after |
 |---|---:|---:|
 | move: content follows after (ms, median) | 1.76 [1.40-1.90] | 1.67 [1.32-2.37] |
@@ -384,19 +408,24 @@ loaded - cold-start rows swung 8x between runs and are meaningless here), Window
 | resize: content follows after (ms, median) | 7.36 [5.43-8.35] | 6.81 [5.23-28.14] |
 | 60 Hz live resize: frames in sync (%) | 100 | 98 |
 | 60 Hz live resize: catch-up (ms) | 16.1 [6.6-54] | 29.8 [4.5-65] (ranges overlap; noise) |
+
 **Resize vs Wails (3.7 vs 6.9 ms before)**: an instrumented run (10 tabs, 2 WebViews resized: active tab + shell) split a
 resize into ~0.7 ms `EndDeferWindowPos`, ~1.3 ms for the two `put_Bounds`, ~1.4 ms of redundant shell calls (now removed) and
 ~3 ms outside `layout()`: the cross-thread `WM_WINDOWPOSCHANGING` / `WM_NCCALCSIZE` / `WM_SIZE` delivery to the app thread plus the other
 resize listeners (titlebar, caption buttons, window state). Wails' hook calls `SetWindowPos` straight from its move/size callback. The
 layout part (~3.4 ms -> ~2 ms expected) is reduced; the measured end-to-end median moved 7.36 -> 6.81 ms, inside the noise, so the gap
 to Wails is **not closed**. The remaining ~3 ms is outside the layout code and was not attributed further.
+
 ### 2. Terminal throughput (ConPTY)
+
 The pipeline after ConPTY is not the limit: a synthetic 256 MiB source through `OutputChannel` -> shared buffers -> page with acks runs
 at 2.4-4.2 GB/s (229 MiB/s once under heavy load); a keystroke -> echo round trip through the whole stack is 0.7-1.0 ms. Output
 coalescing (send at once when idle, gather while a frame is in flight, 16 ms / 64 KiB bound) and ack credit were reviewed and left
 unchanged: throughput is bounded by ConPTY, latency by one frame only when the renderer is busy.
+
 The in-box (kernel32) ConPTY paints at ~60 Hz and caps output at ~15-20 MiB/s; the redistributable `conpty.dll` + `OpenConsole.exe` does not.
 `Pty` already loaded it when it sat next to the executable; what was missing was a supported way to ship it.
+
 **New: `cmake/BosonConPTY.cmake`** (opt-in): `-DBOSON_BUNDLE_CONPTY=ON` for the tests/demo, or in your own project
 `include(cmake/BosonConPTY.cmake)`, `boson_bundle_conpty(my_app)`, `install(FILES ${BOSON_CONPTY_FILES} DESTINATION .)`.
 It downloads `Microsoft.Windows.Console.ConPTY` from nuget.org at configure time, **rejects the package unless its SHA-256 matches
@@ -406,19 +435,25 @@ version 1.25.261109001 (the pinned default): licence expression `MIT` in the nus
 `signtool verify /pa` (chain: Microsoft Code Signing PCA 2024 -> Microsoft Corporation, timestamped); package sha256
 `3d77f535df848e44225c2a8912ac844fecb23f3057732b639f3034b587496f09`. Ship the licence text of the Windows Terminal repository
 (MIT) with your app. The default stays OFF: the files add 1.2 MB and a second process per terminal.
+
 Release `boson_terminal_tests`, in-box vs bundled, 2 interleaved runs each (heavily loaded machine, so the in-box column varies 7x):
+
 | | in-box | bundled |
 |---|---:|---:|
 | `echo` command round trip (cmd.exe) | 15.8, 15.2 ms | 0.71, 0.34 ms |
 | 128 MiB end to end (child -> ConPTY -> ring -> shared buffer -> page, acked) | 2.4, 17.5 MiB/s | 226.5, 241.6 MiB/s |
 | 64 MiB raw ConPTY, no renderer (200x50) | 3.4, 7.5 MiB/s | 51.1, 19.0 MiB/s |
 | synthetic source -> page (pipeline ceiling) | 229, 4 209 MiB/s | 3 497, 2 452 MiB/s |
+
 The raw 200x50 figure is far below the end-to-end one even for the bundled backend and below the 296-308 MiB/s in
 docs/TERMINAL.md (Debug, quieter machine); not investigated (differences: terminal size and the child's output pattern).
 In the Release runs `boson_terminal_tests` reported one failure in both configurations, `test_terminal.cpp:685 (shell->processes().size() == 1)`
 (a timing-dependent process-count check on the loaded machine; the Debug run of the same test passed 236/236, and the terminal sources are untouched).
+
 ### 3. GPU surfaces (`gpu::Renderer2D`, `gpu::Surface`)
+
 Reviewed, **no code change**: the numbers do not justify one.
+
 - The 1.46 ms for 17k quads was a Debug figure. Release: **0.24 ms** CPU per frame for the 240x70 text grid on D3D11 (0.20 ms on D3D12),
   17 150 quads in 2 draw calls (0.44-0.47 ms D3D11 including GPU completion). That is ~14 ns per quad. `draw_text_grid` allocates nothing
   per frame (the pending vector is reserved once), the constant buffer is a 16-byte `UpdateSubresource` once per frame, and the instance
@@ -428,24 +463,26 @@ Reviewed, **no code change**: the numbers do not justify one.
   renders only after `WaitForSingleObject(waitable)`/`WaitForMultipleObjects` handed out its slot, and the loop sleeps (`INFINITE`) when no
   surface wants a frame. Animated surface: 181 fps vsync-paced on this display, render-thread CPU 0.39-0.52 ms per frame, 0.35-0.73 ms
   for the last frame callback + present.
+
 ### Verification
+
 Verified: Release (LTO) and Debug builds with `/W4` have no warnings; all 22 enabled ctest suites pass in the Debug build (`boson_compat_typecheck` is disabled); `boson_webview_element_tests` passes (202/202 in the `element,perf` run, with new
 checks that batched moves land exactly and that a hidden WebView applies its stored bounds on show); the A/B tables above were produced
 from the same builds; the CMake helper downloaded, hash-checked and installed the package and the bundled terminal run used it
 (`backend: conpty.dll`).
+
 Not verified: the cost of `EndDeferWindowPos` on a quiet machine (every run had other builds running); the effect of the trailing
 position notification on popups opened mid-scroll (reasoned, not exercised); `BoundsBatch` when a listener destroys a WebView inside
 `GuestManager::apply_layout` between staging and commit (not possible from the current `place()` code, which runs no user callbacks);
 composition hosting (the batch applies to windowed hosting only); ARM64; packaged install with `BOSON_CONPTY_FILES`.
-Each optimization area of the framework keeps a self-contained section here: what was measured, what changed, what was
-rejected, and what was **not** verified. Numbers are from one machine (below); wall-clock figures are noisy because other
-workloads ran on it, so each section leans on counts (threads, handles, modules, bytes) that do not depend on load.
-Test machine: Windows 11 Pro 10.0.26300 (26H2), Intel Core i7-13700KF (24 logical CPUs), 48 GB RAM, WebView2 runtime
-158.0.4370.33, MSVC 14.52, **Release** (`/O2 /Ob3`, `/OPT:REF,ICF`, no PDB) build in `build\rel`.
+
 ## Memory footprint, threads and idle cost
+
 ### Scope and method
+
 Question: what does a Boson app cost *while doing nothing*, which part of that is Boson (the host process) and which is the
 WebView2 runtime, and what in the host is paid for but never used?
+
 - **Apps measured**: `boson_bench_app` (minimal: window + WebView + bridge), `boson_demo` (the showcase), and the new
   `boson_kitchen_sink` (examples/kitchen_sink): bench_app's page plus **every** module linked, constructed and registered
   with the Router: crash reporter, logger, store, in-memory database, scoped fs, titlebar, clipboard, global shortcuts,
@@ -461,10 +498,14 @@ WebView2 runtime, and what in the host is paid for but never used?
   snapshot" (ETW needs admin and perturbs a busy machine). All A/B runs were **interleaved** (A, B, C, A, B, C ...) and the
   tables show median (min-max).
 - Host = the app's own process. Tree = host + all `msedgewebview2.exe` processes.
+
 ### Where the memory is (before any change)
+
 | | Host process | WebView2 processes |
+|---|---:|---:|
 | bench_app, idle | 3.3 MB private WS, 4.7 MB commit, 33 threads, 287 handles, 44 modules | ~80 MB private WS, ~143 MB commit, 6 processes, ~140 threads, ~3400 handles (tree total: 84 MB, 147 MB, 7 processes, 175 threads, 3670 handles) |
 | kitchen sink, idle | 4.5 MB private WS, 6.5 MB commit, 36 threads, 334 handles, 56 modules | same |
+
 The host is ~4 % of the tree's private working set (before this pass). Everything the framework owns is therefore worth a few MB at most;
 the remaining lever is the runtime's own configuration (see "WebView2 options"). Idle wake-ups of the host were already
 negligible before this pass: bench_app 0.0 context switches/s (median, 0-4.7), kitchen sink 0.3-0.9/s, and nearly all of
@@ -473,39 +514,53 @@ wake-ups/s, all on the UI thread). A grep for timed waits found only the gpu dev
 poll (50 ms) and the WebView2-runtime installer poll (200 ms), none of them part of steady state; this is not an
 exhaustive audit of every timer the optional modules can arm once they are in use. The demo's 15-40 context switches/s and ~80 % of a core are its page (60 fps rAF animation + 1 Hz tick), not the
 framework.
+
 ### Changes that won
+
 All three are in this branch; the first two were A/B-tested one at a time on the same sources.
+
 #### 1. Right-sized default thread pool (`exec::Scheduler`)
+
 `Scheduler` used `max(2, hardware_concurrency())` workers: 24 threads on this machine, all created at startup
 (`stdexec::static_thread_pool` has no lazy growth). IPC handlers are short and never run on the UI thread, so the extra
 threads were pure idle cost. The default is now `clamp(hardware_concurrency / 2, 2, 6)`
 (`Scheduler::kMaxDefaultThreads`); an explicit `Scheduler(n)` is unchanged for workloads that block pool threads.
+
 Isolated experiment (same binary, pool size forced with a temporary env override, 3 interleaved runs each; deterministic):
+
 | Pool threads | Host threads | Host private WS (KB) | Host commit (KB) | Host handles |
 |---:|---:|---:|---:|---:|
 | 2 | 11 | 2472-2484 | 3552-3560 | 265 |
 | 6 | 15 | 2624-2648 | 3756-3780 | 269 |
 | 24 (old default) | 33 | 3368-3456 | 4788-4880 | 287 |
+
 Each worker costs ~40 KB private WS, ~56 KB commit and one handle for the life of the process. IPC does not
 need the extra threads. bench_app `--auto` (the IPC test of docs/BENCHMARKS.md), old default (24 workers) vs 6 workers, 6
 interleaved runs each on a quiet machine, median (min-max):
+
 | Metric | 24 workers | 6 workers |
+|---|---:|---:|
 | 1000 sequential calls, p50 / mean (ms) | 0.10 / 0.094 | 0.10 / 0.095 |
 | 1000 concurrent static calls (calls/s) | 90 909 (77 519-94 340) | 96 154 (80 000-100 000) |
 | 1000 concurrent dynamic calls (calls/s) | 90 090 (85 470-92 593) | 94 340 (75 758-98 039) |
 | 10 MB upload, median of 3 (ms) | 73.4 (70.0-83.2) | 78.4 (70.6-81.3) |
 | 10 MB download (ms) | 108 (97-161) | 100 (97-106) |
 | 10 MB echo (ms) | 245 (165-261) | 169 (166-178) |
+
 (An earlier set of rounds taken while other agents were compiling was too noisy to rank 2 / 8 / 24 threads at all.) A side effect: with fewer workers a 1 Hz `runner.spawn` wakes fewer threads: the demo's
 host context-switch rate fell from 40 (23-64) to 15 (9-33) per second.
+
 Rejected: *lazy* pool creation. Every Boson app dispatches its first IPC at page load, so deferring the threads only moves
 a ~1.5 ms cost; there is no steady-state gain.
+
 #### 2. Delay-loaded system DLLs (`BOSON_DELAYLOAD`, default ON)
+
 `boson_core` links ~25 system libraries; the linker keeps each one an ordinary import as soon as any object that uses it is
 pulled in, so `LoadLibrary` ran for all of them before `main`. They are now delay-loaded through PUBLIC link options on
 `boson_core` (consumers inherit them; `delayimp` is linked, `/IGNORE:4199` silences "no imports from X" for executables
 that never reference a listed DLL): `uiautomationcore, dcomp, windowscodecs, crypt32, bcrypt, winhttp, wintrust, wtsapi32,
 ws2_32, runtimeobject, propsys`. First use resolves the import (a single `LoadLibrary`, system DLLs only).
+
 Deliberately **not** delay-loaded:
 - `dbghelp`: the crash reporter documents that its crash path must be fully loaded at install time; loading a DLL from
   inside an unhandled-exception filter (loader lock, possibly a stack overflow) is exactly what a crash handler must not do.
@@ -513,16 +568,21 @@ Deliberately **not** delay-loaded:
   the WebView2 loader or the shell before `main` anyway, so delaying them only adds a call-time stub.
 - `d3d11, d3d12, dxgi, dwrite` of `boson_gpu`: apps that link `boson_gpu` use it immediately; apps that do not link it
   never reference them (already lazy by library split).
+
 Result (kitchen sink): `dcomp, uiautomationcore, winhttp, ws2_32` (and `Microsoft.Internal.WarpPal`, a dependency of
 dcomp) are no longer mapped at startup. `crypt32, wtsapi32` (and `propsys`, which the WebView2 loader maps itself)
 are still loaded in the kitchen sink because some module calls them while it is being constructed
 (`WTSRegisterSessionNotification` in `PowerMonitor`; the `crypt32` caller was not traced). The executables grow by ~3-4 KB (bench_app 765 952 -> 768 512
 bytes, kitchen sink 6 130 688 -> 6 134 784).
+
 Cost: the first call into a delayed DLL pays its load (typically 1-5 ms) on whichever thread makes it, e.g. the first
 UI Automation probe loads `uiautomationcore` on the UI thread. The first-frame time did not move: see "Startup".
+
 `tests/test_boson.cpp::test_delay_load_policy` parses the PE import tables of the test executable and fails if any listed
 DLL is an ordinary import, if `dbghelp` is delay-loaded, or if the delay table is empty (not vacuous).
+
 Combined idle result (5 interleaved runs per cell, 12 s window, median (min-max)):
+
 | App | Build | Threads | Modules | Handles | Host private WS (MB) | Host commit (MB) | Tree private WS (MB) |
 |---|---|---:|---:|---:|---:|---:|---:|
 | kitchen sink | before | 36 (36-36) | 56 (56-56) | 334 (332-335) | 4.45 (4.32-4.54) | 6.50 (6.32-6.66) | 85.8 (83.5-87.2) |
@@ -534,6 +594,7 @@ Combined idle result (5 interleaved runs per cell, 12 s window, median (min-max)
 | bench_app | before | 33 (33-33) | 44 (44-44) | 287 (287-287) | 3.29 (3.27-3.32) | 4.66 (4.65-4.70) | 84.9 (82.4-86.9) |
 | bench_app | + pool 6 | 15 (15-15) | 44 (41-44) | 269 (245-270) | 2.58 (2.38-2.64) | 3.69 (3.46-3.74) | 83.6 (80.3-86.3) |
 | bench_app | + delay-load (final) | 15 (15-15) | 42 (42-42) | 266 (266-267) | 2.55 (2.50-2.57) | 3.63 (3.56-3.65) | 83.3 (81.4-85.9) |
+
 Thread snapshot, bench_app: 33 -> 15 threads. The 18 removed threads are the idle pool workers (24 -> 6). Of the 15 left, 1
 is the UI thread, 6 are pool workers and 8 are not created by Boson code (WebView2 client / COM / RPC runtime inside the
 process; classified by subtraction, see "Not verified"). The kitchen sink has 3 more (18): the crash-reporter writer and
@@ -542,33 +603,48 @@ crash; the logger writer could start on the first log line, but an app that crea
 save nothing in practice) and one thread that was not identified.
 Idle context switches of the host after the change: bench_app 0 (0-13) per second, kitchen sink 0.9 (0.5-6.4), demo 15
 (10-45, page-driven).
+
 #### 3. Low memory target while minimized (`WebViewConfig::low_memory_when_minimized`, default true)
+
 `WebView::set_parent_minimized` already hid the controller (`IsVisible = false`), but a hidden WebView2 kept its
 working set (measured: minimized == not minimized). It now also asks the runtime for `MemoryUsageTargetLevel = Low`
 (`ICoreWebView2_19`) while the parent is minimized and returns to the requested level on restore.
 `WebView::applied_memory_target()` reports what the runtime has; `memory_usage_target()` stays what the app asked for;
 `set_keep_visible_when_minimized(true)` (media / DRM apps) opts out automatically. Page state is untouched: only the
 runtime's caches are trimmed.
+
 Minimized window, tree private working set, 10 s window after 3 s settle, interleaved:
+
 | App | Before | After | Delta |
+|---|---:|---:|---:|
 | bench_app (n=5) | 84.9 MB (83.1-86.1) | 77.0 MB (74.9-77.4) | -7.9 MB (-9 %) |
 | kitchen sink (n=3) | 83.8 MB (83.5-84.0) | 75.7 MB (75.7-76.1) | -8.1 MB (-10 %) |
+
 Commit and the host's own working set are unchanged (the runtime trims working set, not commit). Idle CPU while minimized
 stayed at noise level in both (0-0.7 % of a core). Test: `tests/test_integration.cpp` ("suspend / resume / memory target",
 real WebView2) asserts Low on minimize, Normal on restore, and that keep-visible opts out.
+
 After a burst of IPC activity (3 runs each) the host settles at +0.8-1.0 MB private WS vs idle and returns to ~0 wake-ups/s;
 the tree returns to ~197 MB only because the bench *page* keeps its 10 MB strings alive (not host memory). Host private WS
 after the burst: bench_app 4.09 -> 3.10 MB, kitchen sink 5.06 -> 3.78 MB, i.e. the same savings as idle.
+
 ### Startup
+
 `boson_bench --wait-ready`, 8 interleaved runs per binary, before vs final build:
+
 | App | First window (ms) before / after | Ready (first web frame, ms) before / after |
+|---|---:|---:|
 | bench_app | 26 (17-31) / 33 (15-38) | 330 (310-368) / 317 (279-347) |
 | kitchen sink | 30 (19-43) / 34 (22-35) | 316 (270-371) / 323 (277-336) |
+
 No measurable change either way (the differences are inside the run-to-run spread). The pool is ~1.5 ms of thread creation
 and the delayed DLL loads are a few ms; neither is visible next to WebView2's ~300 ms environment + first navigation.
+
 ### WebView2 options evaluated
+
 Tree totals for bench_app, idle, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set per run, 3 interleaved runs per row
 (same binary):
+
 | Option | Tree private WS (MB) | Commit (MB) | Processes | Threads | Handles | Verdict |
 |---|---:|---:|---:|---:|---:|---|
 | none | 84 (83.3-85.8) | 147.6 | 7 | 175 | 3670 | baseline |
@@ -580,17 +656,23 @@ Tree totals for bench_app, idle, `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` set per
 | `--disable-sync`, `--disable-default-apps` | 86.0 / 85.3 | 149.4 / 148.6 | 7 | 176 | n/a | no gain |
 | `--disable-component-update` | **80.9** (80.8-81.0) | 143.9 | 7 | 174 | n/a | -4.5 MB, **opt-in only**: it also stops CRL sets and the Widevine/PlayReady component updates DRM playback depends on (docs/COMPOSITION_DRM_SPIKE.md) |
 | `--in-process-gpu` | **69.9** (69.7-81.1) | 128.8 | **6** | 160 | 3293 | -14 MB, -1 process, -377 handles, **opt-in only**: a GPU crash then takes the browser process (and the app's WebView) down, and the GPU sandbox is weakened; unsupported by Microsoft |
+
 None of the "disable feature" switches is enabled by default: they did not reduce memory beyond noise, or they trade
 security / reliability for it. The two that do (`--disable-component-update`, `--in-process-gpu`) are one line for an app
 that accepts the trade-off:
+
 ```cpp
 boson::core::EnvironmentConfig env;
 env.additional_browser_arguments.emplace_back(L"--disable-component-update"); // -4.5 MB; no CRLSet / CDM updates
 env.additional_browser_arguments.emplace_back(L"--in-process-gpu");           // -14 MB, one process less; GPU crash = browser crash
+```
+
 Already in place and verified to exist, not changed here: `WebViewHost::set_sleep_policy` puts a *hidden* WebView to sleep
 after a timeout (`MemoryUsageTargetLevel Low` + `TrySuspend`); multi-window apps share one environment (one browser
 process tree) through `app::WindowManager`.
+
 ### Evaluated and rejected
+
 - **One shared message-only window for all hidden-window needs.** The kitchen sink owns 3 Boson hidden windows
   (display watcher: top-level because WM_DISPLAYCHANGE is only broadcast to top-level windows; clipboard listener and
   global shortcuts: message-only) plus the tray window, all created on first use of their module (a bench_app has none).
@@ -601,12 +683,20 @@ process tree) through `app::WindowManager`.
 - **Delay-loading `dbghelp`** (crash safety, above) and **a lazy thread pool** (no steady-state gain).
 - **Static initializers / large tables:** the host's whole private working set is ~2.6 MB, so no table of significance
   can exist; not pursued further.
+
 ### Reproducing
+
+```bat
 cmake -S . -B build\rel -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build\rel
 powershell -File bench\memsnap.ps1 -Exe build\rel\boson_kitchen_sink.exe -Name ks -Scenario idle      -Idle 12 -Out out\ks_idle.json
 powershell -File bench\memsnap.ps1 -Exe build\rel\boson_kitchen_sink.exe -Name ks -Scenario burst     -Idle 10 -Out out\ks_burst.json
 powershell -File bench\memsnap.ps1 -Exe build\rel\boson_kitchen_sink.exe -Name ks -Scenario minimized -Idle 10 -Out out\ks_min.json
 rem old behaviour for A/B:  cmake -DBOSON_DELAYLOAD=OFF ...   and   boson::exec::Scheduler scheduler(24);
+```
+
+### Verification
+
+Verified:
 - Release (`build\rel`, `/W4`) builds all targets with zero warnings, including `/DELAYLOAD` + `delayimp` (no LNK4199).
 - Debug (`build\wt`) full build is warning-free; `ctest` passed 22 of 22 enabled suites (`boson_compat_typecheck` is
   disabled in this checkout). `boson_desktop_tests` failed once under `ctest -j3` on the *system clipboard* section
@@ -614,6 +704,8 @@ rem old behaviour for A/B:  cmake -DBOSON_DELAYLOAD=OFF ...   and   boson::exec:
 - New checks: Scheduler sizing (`test_scheduler_sizing`), delay-load import-table policy, minimized memory target on a real
   WebView2 (integration test).
 - Every table above is raw output of `bench/memsnap.ps1` / `boson_bench`; interleaved, median (min-max).
+
+Not verified:
 - ETW traces (not used; counters from `NtQuerySystemInformation` instead). Thread *names* are not resolved: the Release
   build has no PDB, so the 15/18 remaining threads are classified by count and by elimination, not by symbol.
 - Which thread is the 18th of the kitchen sink, and which 8 non-Boson threads the runtime creates in-process.
@@ -625,26 +717,30 @@ rem old behaviour for A/B:  cmake -DBOSON_DELAYLOAD=OFF ...   and   boson::exec:
   same call that makes the controller visible again).
 - A GPU-using app (`boson_gpu`) with the new link options: `boson_gpu_tests` pass, no GPU-specific idle measurement.
 - Comparisons with Tauri / Wails / Electron are outside this section.
-Each area of the optimisation pass has its own section. Method everywhere: measure before changing, change one thing,
-measure after, interleave A/B runs, keep only what wins (or is neutral and simpler). Release + LTO builds
-(`build\rel`), Windows 11 26H2, i7-13700KF, WebView2 runtime 158.0.4370.33, warm start (runtime and binaries in the
-file cache). Other agents were building on the same machine for most of the session (CPU was at 100 % for hours),
-so every number below says what the load was; wall-clock under load is only used for A/B pairs that ran interleaved.
+
 ## Startup, shutdown and lifecycle
+
 ### Tracing: `BOSON_TRACE`
+
 `include/boson/core/trace.hpp`. `boson::trace::mark("name")` stores a QueryPerformanceCounter value in a fixed table
 (1024 entries, lock-free, no allocation, any thread). With `BOSON_TRACE` unset it is one load of a plain `bool` and a
 not-taken branch, no call. With it set, the table is written at process exit (atexit, or `trace::flush()`, which
 `app::exit_process` calls) with times relative to **process creation** (`GetProcessTimes`):
+
+```
 set BOSON_TRACE=1                 -> OutputDebugString + stderr
 set BOSON_TRACE=C:\temp\boson.log -> appended to that file (one block per process)
 [boson-trace pid=18628 tid=26200]    25.300  +   0.900  webview.controller.call
+```
+
 Library markers: `window.create.{begin,styled,shown}`, `scheduler.pool.{begin,end}`, `env.create.{call,returned}`,
 `env.created`, `webview.controller.{call,created}`, `webview.{configured,events_registered,navigate,nav_starting,
 nav_completed}`, `asset.{request,looked_up,stream_and_headers,response_created,response,warm_up.*}`, and for the end
 `window.wm_close`, `quit.begin`, `env.teardown.{begin,end}`, `env.browser_process_exited`, `quit.post_quit_message`,
 `message_loop.exit`, `exit_process`, `trace.flush`. Apps add their own (the bench apps mark `page.first_frame`).
+
 ### Where the time goes (boson_bench_app, 8 runs, quiet machine, medians, ms since process creation)
+
 | Marker | ms | Step |
 |---|---:|---|
 | `trace.init` (first static initializer of the exe) | 10.8 | process creation, loader, CRT |
@@ -655,10 +751,13 @@ nav_completed}`, `asset.{request,looked_up,stream_and_headers,response_created,r
 | `webview.nav_starting` -> `asset.response` | 208.7 -> 210.2 | the boson:// request is answered in 0.1 ms |
 | `webview.nav_completed` | 300.4 | **90 ms inside WebView2** (renderer process, parse, commit) |
 | `page.first_frame` (2nd requestAnimationFrame) | 314.6 | first paint |
+
 The part Boson controls is the first 25 ms (8 %). The other 92 % is the WebView2 runtime starting its processes. The
 levers that exist are: do nothing on the UI thread that delays `controller.call`, and do not add work to the response of
 the first request.
+
 ### What changed, with before / after
+
 **1. `app::quit()` no longer waits for the browser process (shutdown).** Before, `quit` closed the controllers and waited up
 to 3 s for `BrowserProcessExited`, only then `PostQuitMessage`. The browser takes 250-350 ms to exit on a quiet machine,
 and the event often is not delivered at all under load (the 3 s timeout fired in most runs on a loaded machine), so the
@@ -668,64 +767,83 @@ as for any host that goes away. `Environment::shutdown(cb, 0ms)` is the same pri
 a positive timeout keeps the old waiting behaviour (`app::quit(envs, 3s)`, `WindowManager::quit(code, 3s)`);
 `app::relaunch` still waits (its successor needs the user data folder, and `Environment` retries
 `ERROR_INVALID_STATE` for a fast restart anyway).
+
 | Shutdown, WM_CLOSE -> every process of the tree gone (`boson_bench`, 10 runs interleaved, quiet machine) | median | min-max |
+|---|---:|---:|
 | boson_bench_app, before | 325 ms | 310-341 |
 | boson_bench_app, after | **171 ms** | 160-260 |
 | boson_demo, before (8 runs) | 326 ms | 278-341 |
 | boson_demo, after (8 runs) | **201 ms** | 171-245 |
 | boson_browser, 10 tabs (scenario, 5 runs) before / after | 447 ms [382-484] | **304 ms** [243-336] |
+
 The UI-thread view (QPC trace, WM_CLOSE -> last line of the process, 12 runs interleaved): before 308 ms median (min
 270, one run 3017 = the timeout), after **16.7 ms** (11.7-58). At 100 % CPU load from other builds: before 2653 ms
 (305-3035), after 20.5 ms (14.5-38). Wails measures ~205 ms to the same end point (docs/BENCHMARKS.md); the tree exit is
 now below that.
+
 **2. `app::exit_process(code)` + `app::add_exit_hook(fn)` (opt-in fast exit).** `return run_message_loop();` runs every
 destructor of `wWinMain` (thread-pool joins, WebView and COM teardown, CRT atexit): **36.5 ms median (13-115)** between
 `message_loop.exit` and the end of the process in the baseline. `exit_process` runs the registered hooks in reverse
 order (each once, exceptions swallowed), flushes the BOSON_TRACE table and calls `ExitProcess`. Nothing that was not
 flushed by a hook is saved, so use it only when the durable state is already on disk or covered by hooks:
+
 - `Store` with `autosave` writes before `update()` returns; `WindowStateKeeper` saves synchronously on close (the
   demo registers `window_state.save_now()` as a hook anyway); `Logger`: register `logger.flush()`; a database: register its
   close/checkpoint; `CrashReporter` only installs a filter, nothing to flush.
 - The bench app, the browser example and the demo use it. Measured tail after the message loop: 36.5 ms -> 0.
+
 **3. First boson:// response pre-paid (startup).** The first `CreateWebResourceResponse` of a process costs ~2.5 ms
 (stream marshalling is initialised) and every later one 0.03 ms. The UI thread is idle for ~180 ms while the controller is
 created, so `ProtocolHandler::warm_up` does one throw-away call right after the controller request. The first asset
 answer on the critical path went **3.0 ms -> 0.1 ms** (median of 7 runs; the warm-up itself, 2.9 ms, happens in the idle
 window). Per-request cost of the handler (lookup + stream + headers + response) is ~0.1 ms, so zero-copy streams and
 header caching were not pursued: there is nothing to win at that size.
+
 **4. `exec::Scheduler` starts its pool on first use.** The constructor used to create `hardware_concurrency` threads
 (24 here: 1.1-3.2 ms on the UI thread before the environment was even created). The pool is now created by the first
 `get_scheduler()` (`std::call_once`). Start-up path: `webview.controller.call` 38 -> 34 ms median in the interleaved A/B
 (min 29 -> 23.5; noise is +-5 ms). IPC unchanged (7 interleaved runs of the bench app's load test: 1000 concurrent
 pings 88.5k vs 86.2k calls/s, 10 MB echo 205 vs 200 ms, sequential ping 0.1 ms both).
+
 **5. Opt-in sleeping-tab mode `SleepPolicy::discard`** (and `WebView::discard()` / `is_discarded()`). Memory over wake
 time: the sleeping WebView's controller is closed (its renderer process exits), the container, bounds and configuration
 stay, and `set_visible(true)` creates a new controller and reloads the last URL (page state is lost, like Wails'
 hidden windows). `lower_memory_target` and `suspend` are ignored in this mode. Default stays TrySuspend.
 `boson_browser --sleep-discard` turns it on; `boson_bench --scenario browser` measures both (5 runs, quiet machine):
+
 | 10 tabs, 9 asleep | TrySuspend (default) | discard | change |
+|---|---:|---:|---:|
 | whole-tree private WS | 223.2 MB [221.3-225.7] | **167.7 MB** [165.2-171.4] | -25 % |
 | WebView2 tree working set | 552.4 MB | **433.1 MB** | -22 % |
 | processes | 17 | **8** | -9 |
 | 5 tabs, 4 asleep: whole-tree private WS | 192.0 MB | **150.6 MB** | -22 % |
 | wake a sleeping tab -> 2 frames (median) | **20.0 ms** [16.8-24.2] | 70.3 ms [64.5-82.8] | +50 ms (page reload) |
 | tab switch between awake tabs | 18.5 ms | 22.4 ms | within noise |
+
 Wake with discard costs about a new tab (destroy + recreate here: 72 ms). Caveats: after tabs were slept and woken
 once the 10-awake-tab tree is a little heavier with discard (912 vs 800 MB working set, +11 MB private) because the woken
 renderers started cold; the 15 ms wake of TrySuspend is the right default for tabs the user returns to.
+
 ### Tried and dropped (measured, no win)
+
 | Idea | Result |
+|---|---|
 | Create the Environment before the window (examples) | `CreateCoreWebView2EnvironmentWithOptions` is synchronous (5 ms); same UI thread, nothing overlaps. Reverted. |
 | Pre-load `EmbeddedBrowserWebView.dll` on a pool thread (`Environment::prewarm`) | environment call 5.3 ms -> 5.5 ms (10 runs); the DLL is not the cost. Removed. |
 | `/DELAYLOAD:dcomp.dll` | `trace.init` 15.0 -> 15.8 ms (12 runs), +0. Reverted. |
 | Browser switches: `--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection`, `--disable-background-networking --disable-component-update --disable-sync --no-first-run --disable-default-apps`, `--in-process-gpu` | controller creation median 237.5 ms (control) vs 235.7 / 217.1 / 261.1 ms, 10 interleaved runs each, ranges overlap. No switch changed by default. |
 | Zero-copy asset stream, cached header blocks | the handler is 0.1 ms per request after the first; nothing to gain. |
 | Waiting for `BrowserProcessExited` before WM_QUIT | the cost being removed in change 1. |
+
 ### Binary size
+
 Release + LTO, /MD: `boson_demo.exe` 1 370 624 -> 1 379 328 bytes (+8.7 KB), `boson_browser.exe` 1 290 752 -> 1 298 944
 (+8.2 KB), `boson_bench_app.exe` 765 952 -> 773 120 (+7.2 KB, 0.9 %): the trace table writer, exit hooks and discard. A cost,
 not a win; the trace code is the bulk of it.
+
 ### Using it
+
+```cpp
 // Ending an app: hide the window (instant for the user), close controllers, leave. No browser wait.
 window.on(WindowEventKind::CloseRequested, [&](WindowEvent& e) {
     e.cancel = true;
@@ -734,9 +852,15 @@ window.on(WindowEventKind::CloseRequested, [&](WindowEvent& e) {
 });
 app::add_exit_hook([&] { logger.flush(); });     // optional, only with exit_process
 app::exit_process(Window::run_message_loop());   // optional: skips the destructors, ~35 ms
+```
+
 Order work for start-up: create the Window, the Environment and the first WebView (`host.create`) before any slow
 non-UI work (settings from disk, database open, plugin discovery). The browser then spends its ~180 ms starting while that
 work runs, instead of after it. The UI thread must reach the message loop to receive the controller callback.
+
+### Verification
+
+Verified:
 - Release + LTO build of every target is warning-free (/W4); Debug build of every target is warning-free.
 - ctest (Debug, `-j2`, final code, quiet machine): **23 of 23 enabled suites pass** in 69 s (`boson_compat_typecheck` is
   disabled upstream), including the new `boson_lifecycle_tests` (39 checks: exit hooks, lazy pool, `quit` posts WM_QUIT in
@@ -744,6 +868,7 @@ work runs, instead of after it. The UI thread must reach the message loop to rec
   the machine was at 100 % CPU had `boson_integration_tests` and `boson_security_tests` fail on "BrowserProcessExited not
   observed" (their own 3 s `env->shutdown` waits); both passed alone straight after (125/125, 315/315) and in the final run.
 - Numbers above: interleaved A/B on the same machine, medians and ranges quoted, run counts in the tables.
+
 Not verified / limits:
 - Under heavy CPU load (other agents' builds at 100 %) the browser tree takes 2-10 s to exit in both versions; the tree-exit
   comparison above is from the quiet period, the UI-thread comparison also from the loaded one.
