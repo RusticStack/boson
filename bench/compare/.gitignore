@@ -1,0 +1,15 @@
+# build outputs (reproduced by bench/run_compare.ps1)
+electron/node_modules/
+electron/stage/
+electron/out/
+electron/dist/
+tauri/src-tauri/target/
+tauri/src-tauri/gen/
+tauri/out/
+tauri/frontend/
+tauri/src-tauri/icons/
+wails/bin/
+wails/frontend/
+wails/*.syso
+boson/out/
+*.log

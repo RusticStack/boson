@@ -6,7 +6,9 @@
 #include <windows.h>
 #include <shlwapi.h>
 
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -847,6 +849,27 @@ void test_runtime_and_authenticode() {
     refused.bootstrapper_url = "http://example.invalid/setup.exe"; // plain HTTP is refused before any I/O
     const auto r2 = sh::ensure_webview2_runtime(refused);
     SH_CHECK(r2.status == sh::RuntimeStatus::DownloadFailed && r2.error.find("HTTPS") != std::string::npos);
+
+    // An embedded bootstrapper is never downloaded; unsigned bytes are rejected before they would run.
+    constexpr std::array<std::byte, 4> fake_setup{std::byte{'M'}, std::byte{'Z'}, std::byte{0}, std::byte{0}};
+    sh::RuntimeBootstrapOptions embedded;
+    embedded.assume_missing = true;
+    embedded.bootstrapper_url = "http://example.invalid/setup.exe"; // would fail with DownloadFailed if it were used
+    embedded.embedded_bootstrapper = fake_setup;
+    embedded.download_dir = g_root;
+    const auto r3 = sh::ensure_webview2_runtime(embedded);
+    SH_CHECK(r3.status == sh::RuntimeStatus::VerificationFailed && !r3.ok());
+    SH_CHECK(!fs::exists(g_root / (L"MicrosoftEdgeWebview2Setup-" + std::to_wstring(GetCurrentProcessId()) + L".exe")));
+    // require_webview2_runtime without dialogs: missing runtime -> false (no embedded bootstrapper, then a rejected one).
+    sh::RuntimeGuardOptions guard;
+    guard.assume_missing = true;
+    guard.silent = true;
+    SH_CHECK(!sh::require_webview2_runtime(L"Boson Test", guard));
+    guard.embedded_bootstrapper = fake_setup;
+    SH_CHECK(!sh::require_webview2_runtime(L"Boson Test", guard));
+    guard.assume_missing = false;
+    guard.embedded_bootstrapper = {};
+    SH_CHECK(sh::require_webview2_runtime(L"Boson Test", guard) == version.has_value());
 
     // A Microsoft-signed binary with an embedded signature: the WebView2 runtime's own executable.
     std::optional<fs::path> signed_binary;

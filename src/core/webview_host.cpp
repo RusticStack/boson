@@ -204,9 +204,11 @@ void WebViewHost::relayout() {
     if (m_layout) {
         m_layout(*this, context);
     } else {
+        BoundsBatch batch(m_webviews.size());
         for (const auto& webview : m_webviews) {
-            webview->set_bounds(context.client_px);
+            webview->set_bounds(context.client_px, batch);
         }
+        batch.commit();
     }
     if (m_composition) {
         m_composition->commit();
@@ -264,6 +266,12 @@ void WebViewHost::check_sleep_now() {
             continue;
         }
         m_sleeping.push_back(SleepingEntry{.id = id, .hidden_since = webview.hidden_since()});
+        if (m_sleep_policy->discard) {
+            if (webview.discard() && m_on_slept) {
+                m_on_slept(webview);
+            }
+            continue;
+        }
         if (m_sleep_policy->lower_memory_target) {
             webview.set_memory_usage_target(MemoryUsageTarget::Low);
         }

@@ -1,0 +1,55 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release (LTO, /MD, no RTTI)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "single-exe",
+      "displayName": "Release, single self-contained exe (static CRT, imports only Windows DLLs)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/single-exe",
+      "cacheVariables": {
+        "BOSON_SINGLE_EXE": "ON"
+      }
+    },
+    {
+      "name": "single-exe-bootstrapper",
+      "displayName": "single-exe + embedded WebView2 Evergreen bootstrapper in boson_hello",
+      "inherits": "single-exe",
+      "binaryDir": "${sourceDir}/build/single-exe-bs",
+      "cacheVariables": {
+        "BOSON_HELLO_EMBED_BOOTSTRAPPER": "ON"
+      }
+    },
+    {
+      "name": "pgo-gen",
+      "displayName": "Release, instrumented for PGO (use bench/pgo.ps1)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/pgo",
+      "cacheVariables": {
+        "BOSON_PGO": "GEN"
+      }
+    },
+    {
+      "name": "pgo-use",
+      "displayName": "Release, profile-guided (needs build/pgo/pgo/*.pgd)",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/pgo",
+      "cacheVariables": {
+        "BOSON_PGO": "USE"
+      }
+    }
+  ]
+}

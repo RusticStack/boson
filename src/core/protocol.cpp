@@ -1,11 +1,13 @@
 #include <boson/core/protocol.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 
 #include <shlwapi.h>
 #include <wrl.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <memory>
 #include <string>
@@ -107,12 +109,28 @@ std::string_view ProtocolHandler::mime_type_for(std::string_view path) noexcept 
     return "application/octet-stream";
 }
 
+void ProtocolHandler::warm_up(ICoreWebView2Environment* env) noexcept {
+    static std::atomic<bool> done{false};
+    if (env == nullptr || done.exchange(true)) {
+        return;
+    }
+    trace::mark("asset.warm_up.begin");
+    // Same shape as a real response: a stream and a header block (the first one initializes stream marshalling).
+    constexpr BYTE kByte = 0;
+    ComPtr<IStream> stream;
+    stream.Attach(SHCreateMemStream(&kByte, 1));
+    ComPtr<ICoreWebView2WebResourceResponse> response;
+    BOSON_HR_CHECK(env->CreateWebResourceResponse(stream.Get(), 200, L"OK", L"Content-Type: text/plain", &response));
+    trace::mark("asset.warm_up.end");
+}
+
 HRESULT ProtocolHandler::handle_request(
     ICoreWebView2Environment* env,
     ICoreWebView2WebResourceRequestedEventArgs* args) const {
     if (env == nullptr || args == nullptr) {
         return E_INVALIDARG;
     }
+    trace::mark("asset.request");
 
     ComPtr<ICoreWebView2WebResourceRequest> request;
     HRESULT hr = args->get_Request(&request);
@@ -134,6 +152,7 @@ HRESULT ProtocolHandler::handle_request(
     if (m_lookup) {
         asset_bytes = m_lookup(asset_path);
     }
+    trace::mark("asset.looked_up");
 
     ComPtr<ICoreWebView2WebResourceResponse> response;
     if (!asset_bytes.has_value()) {
@@ -166,6 +185,7 @@ HRESULT ProtocolHandler::handle_request(
     headers_utf8.append("\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache");
     headers_utf8.append(m_extra_headers);
     const std::wstring headers_wide = utf8_to_wide(headers_utf8);
+    trace::mark("asset.stream_and_headers");
 
     hr = env->CreateWebResourceResponse(
         stream.Get(),
@@ -173,11 +193,14 @@ HRESULT ProtocolHandler::handle_request(
         L"OK",
         headers_wide.c_str(),
         &response);
+    trace::mark("asset.response_created");
     if (!hr_check(hr, "CreateWebResourceResponse (200)")) {
         return hr;
     }
 
-    return args->put_Response(response.Get());
+    const HRESULT put_hr = args->put_Response(response.Get());
+    trace::mark("asset.response");
+    return put_hr;
 }
 
 } // namespace boson::core

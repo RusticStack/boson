@@ -140,6 +140,11 @@ public:
     Driver& operator=(const Driver&) = delete;
 
     void set_bridge(ipc::Bridge* bridge) noexcept { m_bridge = bridge; }
+    /// Sleep the hidden tabs with SleepPolicy::discard (renderer freed, page reloads on wake) instead of TrySuspend.
+    void set_sleep_discard(bool discard) noexcept {
+        m_sleep_discard = discard;
+        m_result.sleep_mode = discard ? "discard" : "try_suspend";
+    }
 
     /// @brief Injects the adapter + bench_shell.js into every document of the shell WebView.
     static void configure_shell(core::WebViewConfig& shell_cfg) {
@@ -156,6 +161,7 @@ public:
     void on_shell_painted() {
         if (m_shell_paint != 0) return;
         m_shell_paint = qpc_now();
+        trace::mark("page.first_frame");
         write_file(L"shell_paint", std::to_string(m_shell_paint));
         write_file(L"ready", std::to_string(m_shell_paint));
         maybe_started();
@@ -271,7 +277,8 @@ private:
         m_slept_out = &slept_out;
         m_sleep_done = std::move(next);
         // The real SleepPolicy path (lower the memory target, TrySuspend), with the hidden timeout forced to 0.
-        m_host.set_sleep_policy(core::SleepPolicy{.hidden_timeout = std::chrono::milliseconds{0}, .check_interval = std::chrono::hours{1}});
+        m_host.set_sleep_policy(core::SleepPolicy{
+            .hidden_timeout = std::chrono::milliseconds{0}, .check_interval = std::chrono::hours{1}, .discard = m_sleep_discard});
         m_host.check_sleep_now();
         m_sleep_timer.start(std::chrono::seconds{15}, [this]() {
             m_result.errors.push_back(std::format("only {} of {} hidden tabs reported sleeping", m_slept, m_sleep_expected));
@@ -283,7 +290,7 @@ private:
     void finish_sleep() {
         m_sleep_timer.stop();
         if (m_slept_out != nullptr) *m_slept_out = m_slept;
-        m_host.set_sleep_policy(core::SleepPolicy{}); // back to the browser's default (5 min hidden)
+        m_host.set_sleep_policy(core::SleepPolicy{.discard = m_sleep_discard}); // back to the browser's default (5 min hidden)
         if (auto next = std::exchange(m_sleep_done, {})) {
             after(std::chrono::milliseconds{200}, std::move(next));
         }
@@ -305,14 +312,26 @@ private:
         }
         const std::uint64_t id = ids[index];
         const bool record = index + 1 < ids.size(); // the last one was the awake active tab
+        bool discarded = false;
+        for (const auto& webview : m_host.webviews()) {
+            if (webview->id() == id) discarded = webview->is_discarded();
+        }
         const LONGLONG t0 = qpc_now();
         m_tabs.bench_activate_tab(id);
-        mark(id, t0, [this, ids = std::move(ids), index, record, next = std::move(next)](double ms) mutable {
-            if (record) m_result.wake_ms.push_back(ms);
-            after(std::chrono::milliseconds{100}, [this, ids = std::move(ids), index, next = std::move(next)]() mutable {
-                wake_one(std::move(ids), index + 1, std::move(next));
+        auto measure = [this, id, t0, ids = std::move(ids), index, record, next = std::move(next)]() mutable {
+            mark(id, t0, [this, ids = std::move(ids), index, record, next = std::move(next)](double ms) mutable {
+                if (record) m_result.wake_ms.push_back(ms);
+                after(std::chrono::milliseconds{100}, [this, ids = std::move(ids), index, next = std::move(next)]() mutable {
+                    wake_one(std::move(ids), index + 1, std::move(next));
+                });
             });
-        });
+        };
+        // A discarded tab has no controller yet: it is created, reloads its page and only then can paint.
+        if (discarded) {
+            wait_nav(id, std::move(measure));
+        } else {
+            measure();
+        }
     }
 
     void switch_test(std::uint32_t i, Step next) {
@@ -479,6 +498,7 @@ private:
     std::optional<PendingMark> m_mark;
 
     core::UiTimer m_sleep_timer;
+    bool m_sleep_discard = false;
     std::uint32_t m_sleep_expected = 0;
     std::uint32_t m_slept = 0;
     std::uint32_t* m_slept_out = nullptr;

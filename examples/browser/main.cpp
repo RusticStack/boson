@@ -125,13 +125,15 @@ public:
     void layout(const core::LayoutContext& ctx) {
         const int header = m_fullscreen ? 0 : ctx.px(40);
         const RECT content{0, header, ctx.width(), ctx.height()};
+        core::BoundsBatch batch(m_tabs.size() + 1);
         for (Tab& tab : m_tabs) {
-            tab.webview->set_bounds(content);
+            tab.webview->set_bounds(content, batch);
         }
         if (m_shell != nullptr) {
             // While the settings modal is open the chrome covers the whole window, above the active tab.
             m_shell->set_visible(!m_fullscreen);
-            m_shell->set_bounds(RECT{0, 0, ctx.width(), m_modal ? ctx.height() : header});
+            m_shell->set_bounds(RECT{0, 0, ctx.width(), m_modal ? ctx.height() : header}, batch);
+            batch.commit();
             m_shell->bring_to_front();
         }
     }
@@ -631,7 +633,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
         bridge.emit("window:maximize-button", browser::MaxButtonEvent{.hovered = e.flag});
     });
 
-    host.set_sleep_policy(core::SleepPolicy{});
+    const bool sleep_discard = has(L"--sleep-discard"); // free the renderer of sleeping tabs; they reload on wake
+    host.set_sleep_policy(core::SleepPolicy{.discard = sleep_discard});
+    if (bench_driver) bench_driver->set_sleep_discard(sleep_discard);
     host.set_on_slept([&browser](core::WebView& webview) { browser.on_slept(webview); });
 
     if (start_urls.empty()) start_urls.emplace_back();
@@ -646,5 +650,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
         app::quit({environment});
     });
 
-    return core::Window::run_message_loop();
+    // Nothing is buffered in this process: skip the destructors (thread joins, COM teardown) at the end.
+    app::exit_process(core::Window::run_message_loop());
 }

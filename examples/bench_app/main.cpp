@@ -50,6 +50,10 @@ struct DownloadRequest {
     std::uint64_t bytes = 0;
 };
 
+struct BurstRequest {
+    std::uint64_t n = 0;
+};
+
 struct DataResponse {
     std::string data;
 };
@@ -110,10 +114,22 @@ public:
 
     [[nodiscard]] DataResponse echo(DataRequest req) const { return DataResponse{.data = std::move(req.data)}; }
 
+    /// Emits n small events from this (pool) thread: the page counts them to measure event throughput.
+    void emit_burst(BurstRequest req) const {
+        constexpr std::uint64_t kMax = 1000000;
+        if (req.n > kMax) {
+            throw std::invalid_argument("emit_burst: at most 1,000,000 events");
+        }
+        for (std::uint64_t i = 0; i < req.n; ++i) {
+            m_bridge.emit("bench:tick", PingResponse{.seq = i});
+        }
+    }
+
     /// Called by the page after its second requestAnimationFrame, i.e. once the first frame was produced.
     void ready() {
         LARGE_INTEGER now{};
         ::QueryPerformanceCounter(&now);
+        trace::mark("page.first_frame");
         if (m_ready_sent.exchange(true)) {
             return;
         }
@@ -172,6 +188,7 @@ struct glz::meta<boson::bench_app::BenchController> {
         "upload", &T::upload,
         "download", &T::download,
         "echo", &T::echo,
+        "emit_burst", &T::emit_burst,
         "ready", &T::ready,
         "report", &T::report);
 };
@@ -183,9 +200,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev_instance*/, PWSTR /*cmd
     }
 
     bool auto_mode = false;
+    bool batch_events = false;
     for (const auto& arg : boson::app::command_line_args()) {
         if (arg == L"--auto") {
             auto_mode = true;
+        } else if (arg == L"--batch-events") {
+            batch_events = true; // coalesce events per UI turn (BridgeAttachOptions::batch_events); the page unpacks arrays
         }
     }
 
@@ -239,7 +259,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev_instance*/, PWSTR /*cmd
     boson::ipc::Router<boson::bench_app::BenchController, boson::compat::ElectronIpc> router(bench_controller, electron_ipc);
     router_ptr = &router;
     electron_ipc.set_bridge(&bridge);
-    bridge.attach(webview);
+    bridge.attach(webview, boson::ipc::BridgeAttachOptions{.batch_events = batch_events});
 
     const UINT start_load_message = ::RegisterWindowMessageW(L"BosonBench.StartLoad");
     window.add_message_hook([&bridge, start_load_message](UINT msg, WPARAM, LPARAM) -> std::optional<LRESULT> {
@@ -261,5 +281,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev_instance*/, PWSTR /*cmd
         boson::app::quit({environment});
     });
 
-    return boson::core::Window::run_message_loop();
+    // No durable state to flush: skip the destructors (thread joins, COM teardown) at the end.
+    boson::app::exit_process(boson::core::Window::run_message_loop());
 }

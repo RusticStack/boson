@@ -1,6 +1,7 @@
 #include <boson/core/webview.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/webview/security_events.hpp>
 
 #include <algorithm>
@@ -11,6 +12,15 @@ namespace {
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
+
+struct CoTaskStringDeleter {
+    void operator()(wchar_t* ptr) const noexcept {
+        if (ptr != nullptr) {
+            CoTaskMemFree(ptr);
+        }
+    }
+};
+using UniqueCoTaskString = std::unique_ptr<wchar_t, CoTaskStringDeleter>;
 
 std::string take_string(HRESULT hr, wchar_t* raw, std::string_view context) {
     std::string out;
@@ -281,21 +291,24 @@ void WebView::register_event_handlers() {
                 if (!live() || args == nullptr || (!m_on_message && m_message_observers.empty())) {
                     return S_OK;
                 }
+                // UTF-16 -> UTF-8 straight from the COM strings into stack buffers (heap only for large messages).
                 wchar_t* raw_json = nullptr;
                 const HRESULT hr = args->get_WebMessageAsJson(&raw_json);
-                const std::string json = take_string(hr, raw_json, "get_WebMessageAsJson");
-                wchar_t* raw_source = nullptr;
-                const HRESULT src_hr = args->get_Source(&raw_source);
-                const std::string source = take_string(src_hr, raw_source, "WebMessageReceived::get_Source");
+                const UniqueCoTaskString json_guard{raw_json};
+                const Utf8Text json{hr_check(hr, "get_WebMessageAsJson") && raw_json != nullptr ? std::wstring_view{raw_json} : std::wstring_view{}};
                 if (json.empty()) {
                     return S_OK;
                 }
+                wchar_t* raw_source = nullptr;
+                const HRESULT src_hr = args->get_Source(&raw_source);
+                const UniqueCoTaskString source_guard{raw_source};
+                const Utf8Text source{hr_check(src_hr, "WebMessageReceived::get_Source") && raw_source != nullptr ? std::wstring_view{raw_source} : std::wstring_view{}};
                 if (!m_message_observers.empty() &&
-                    dispatch_web_message(WebMessage{.json = json, .source_uri = source, .args = args})) {
+                    dispatch_web_message(WebMessage{.json = json.view(), .source_uri = source.view(), .args = args})) {
                     return S_OK;
                 }
                 if (m_on_message) {
-                    m_on_message(json, source);
+                    m_on_message(json.view(), source.view());
                 }
                 return S_OK;
             })
@@ -349,6 +362,7 @@ void WebView::register_event_handlers() {
     BOSON_HR_CHECK(m_webview->add_NavigationStarting(
         Callback<ICoreWebView2NavigationStartingEventHandler>(
             [this, live](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                trace::mark("webview.nav_starting");
                 if (!live() || args == nullptr || !m_events.on_navigation_starting) {
                     return S_OK;
                 }
@@ -377,6 +391,7 @@ void WebView::register_event_handlers() {
     BOSON_HR_CHECK(m_webview->add_NavigationCompleted(
         Callback<ICoreWebView2NavigationCompletedEventHandler>(
             [this, live](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                trace::mark("webview.nav_completed");
                 if (!live() || args == nullptr || !m_events.on_navigation_completed) {
                     return S_OK;
                 }

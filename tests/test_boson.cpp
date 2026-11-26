@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -648,7 +649,87 @@ void test_ui_timer_and_reply_routing() {
 
 }  // namespace
 
+void test_scheduler_sizing() {
+    const std::uint32_t def = boson::exec::Scheduler::default_thread_count();
+    BOSON_CHECK(def >= 2);
+    BOSON_CHECK(def <= boson::exec::Scheduler::kMaxDefaultThreads);
+    BOSON_CHECK(def <= std::max(2u, std::thread::hardware_concurrency() / 2));
+
+    boson::exec::Scheduler default_pool;
+    BOSON_CHECK(default_pool.thread_count() == def);
+    boson::exec::Scheduler explicit_pool(3);
+    BOSON_CHECK(explicit_pool.thread_count() == 3);
+    boson::exec::Scheduler clamped_pool(0);
+    BOSON_CHECK(clamped_pool.thread_count() == 1);
+
+    // The right-sized pool still runs work.
+    std::atomic<int> ran{0};
+    boson::exec::UiMarshal marshal([]() {});
+    boson::exec::TaskRunner runner(default_pool, marshal);
+    for (int i = 0; i < 64; ++i) {
+        runner.spawn([&ran]() { ran.fetch_add(1, std::memory_order_relaxed); });
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (ran.load(std::memory_order_relaxed) < 64 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    BOSON_CHECK(ran.load() == 64);
+}
+
+// ---- PE import tables of the running executable -----------------------------------------------------------
+
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+
+[[nodiscard]] std::vector<std::string> pe_import_names(bool delay_load) {
+    std::vector<std::string> names;
+    const auto* base = reinterpret_cast<const std::byte*>(&__ImageBase);
+    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + __ImageBase.e_lfanew);
+    const auto& dir = nt->OptionalHeader.DataDirectory[delay_load ? IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT : IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (dir.VirtualAddress == 0) {
+        return names;
+    }
+    const auto lower = [](const char* s) {
+        std::string out(s);
+        std::ranges::transform(out, out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return out;
+    };
+    if (delay_load) {
+        const auto* d = reinterpret_cast<const IMAGE_DELAYLOAD_DESCRIPTOR*>(base + dir.VirtualAddress);
+        for (; d->DllNameRVA != 0; ++d) {
+            names.push_back(lower(reinterpret_cast<const char*>(base + d->DllNameRVA)));
+        }
+    } else {
+        const auto* d = reinterpret_cast<const IMAGE_IMPORT_DESCRIPTOR*>(base + dir.VirtualAddress);
+        for (; d->Name != 0; ++d) {
+            names.push_back(lower(reinterpret_cast<const char*>(base + d->Name)));
+        }
+    }
+    return names;
+}
+
+void test_delay_load_policy() {
+#if defined(BOSON_DELAYLOAD_ENABLED)
+    const std::vector<std::string> imported = pe_import_names(false);
+    const std::vector<std::string> delayed = pe_import_names(true);
+    BOSON_CHECK(!imported.empty());
+    const auto has = [](const std::vector<std::string>& v, std::string_view name) { return std::ranges::find(v, name) != v.end(); };
+    // The rarely used system DLLs must never be ordinary imports of an executable that links boson_core ...
+    for (const std::string_view dll : {"uiautomationcore.dll", "dcomp.dll", "winhttp.dll", "crypt32.dll", "wtsapi32.dll",
+                                       "ws2_32.dll", "windowscodecs.dll", "bcrypt.dll", "wintrust.dll", "propsys.dll"}) {
+        BOSON_CHECK(!has(imported, dll));
+    }
+    // ... dbghelp stays eager on purpose (the crash reporter must not load a DLL inside an exception filter) ...
+    BOSON_CHECK(!has(delayed, "dbghelp.dll"));
+    // ... and the delay-load table exists, so the check above is not vacuous.
+    BOSON_CHECK(!delayed.empty());
+#else
+    std::cout << "[skip] test_delay_load_policy: built with BOSON_DELAYLOAD=OFF\n";
+#endif
+}
+
 int main() {
+    test_scheduler_sizing();
+    test_delay_load_policy();
     test_ipc_router();
     test_async_exec_and_ui_marshal();
     test_inplace_vector();

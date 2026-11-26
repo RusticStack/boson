@@ -1,6 +1,7 @@
 #include <boson/core/environment.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/core/webview.hpp>
 
 #include <WebView2EnvironmentOptions.h>
@@ -270,6 +271,7 @@ void Environment::start_creation() {
     const wchar_t* user_data = m_config.user_data_folder.empty() ? nullptr : m_config.user_data_folder.c_str();
 
     const std::weak_ptr<Environment> weak = weak_from_this();
+    trace::mark("env.create.call");
     const HRESULT hr = CreateCoreWebView2EnvironmentWithOptions(
         browser_folder,
         user_data,
@@ -283,6 +285,7 @@ void Environment::start_creation() {
             })
             .Get());
 
+    trace::mark("env.create.returned");
     if (!BOSON_HR_CHECK(hr)) {
         on_created(hr, nullptr);
     }
@@ -301,6 +304,7 @@ void Environment::on_created(HRESULT result, ICoreWebView2Environment* env) {
         return;
     }
 
+    trace::mark("env.created");
     m_creation_hr = result;
     m_retry_count = 0;
     if (!hr_check(result, "CreateCoreWebView2EnvironmentWithOptions callback") || env == nullptr) {
@@ -338,6 +342,7 @@ void Environment::attach_environment_events() {
                             : BrowserExitKind::Normal;
                         exit.pid = pid;
                     }
+                    trace::mark("env.browser_process_exited");
                     self->m_last_browser_pid.reset();
                     if (self->m_on_browser_exited) {
                         self->m_on_browser_exited(exit);
@@ -462,6 +467,7 @@ void Environment::unregister_webview(WebView* webview) noexcept {
 }
 
 void Environment::begin_teardown(std::chrono::milliseconds timeout, std::function<void()> after_exit) {
+    trace::mark("env.teardown.begin");
     m_state = State::TearingDown;
     m_after_exit = std::move(after_exit);
     m_rebuild_list = m_webviews;
@@ -477,6 +483,13 @@ void Environment::begin_teardown(std::chrono::milliseconds timeout, std::functio
         SUCCEEDED(m_environment.As(&env5)) && env5 && m_exited_token.value != 0;
     const bool browser_running = browser_process_id().has_value() || m_last_browser_pid.has_value();
 
+    if (timeout.count() <= 0) {
+        // Do not wait for the browser process: it was told to close above and exits (and flushes its profile) on
+        // its own. Finishing synchronously is safe: the caller's PostQuitMessage only ends the message loop after
+        // every message already queued, including the completions of the Close() calls, has been dispatched.
+        finish_teardown();
+        return;
+    }
     if (!can_observe_exit || !browser_running) {
         // Nothing to wait for; still yield once so COM can finish the Close() calls.
         timeout = std::chrono::milliseconds{50};
@@ -492,6 +505,7 @@ void Environment::begin_teardown(std::chrono::milliseconds timeout, std::functio
 }
 
 void Environment::finish_teardown() {
+    trace::mark("env.teardown.end");
     m_timer.stop();
     detach_environment_events();
     m_environment.Reset();

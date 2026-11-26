@@ -2,6 +2,7 @@
 
 #include <boson/core/composition.hpp>
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/webview/profile.hpp>
 
 #include <algorithm>
@@ -13,6 +14,7 @@ namespace {
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
 
+constexpr std::size_t kMaxRetainedWideChars = 1u << 20; // 2 MiB of UTF-16 kept per thread for message posts
 constexpr wchar_t kContainerClassName[] = L"BosonWebViewContainer";
 constexpr wchar_t kCaptionOverlayProp[] = L"BosonCaptionOverlay";
 
@@ -51,6 +53,9 @@ bool register_container_class(HINSTANCE instance, WNDPROC proc) {
     }
     return true;
 }
+
+constexpr UINT_PTR kNotifyTimerId = 1;
+constexpr ULONGLONG kNotifyThrottleMs = 50;
 
 template <typename Settings>
 void put_if(const std::optional<bool>& value, Settings* settings, HRESULT (STDMETHODCALLTYPE Settings::*put)(BOOL), std::string_view context) {
@@ -196,6 +201,9 @@ bool WebView::create_container() {
         return false;
     }
     SetWindowLongPtrW(m_container, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    m_container_rect = RECT{m_bounds.left, m_bounds.top, m_bounds.right, m_bounds.bottom};
+    m_container_rect_valid = true;
+    m_applied_container_visible = m_visible ? 1 : 0; // WS_VISIBLE above
     raise_caption_overlay();
     return true;
 }
@@ -211,6 +219,12 @@ LRESULT CALLBACK WebView::container_proc(HWND hwnd, UINT msg, WPARAM w_param, LP
         EndPaint(hwnd, &ps);
         return 0;
     }
+    case WM_TIMER:
+        if (w_param == kNotifyTimerId && self != nullptr) {
+            self->notify_parent_window_position_changed();
+            return 0;
+        }
+        break;
     case WM_NCHITTEST:
         // The WebView's own (cross-process) child covers the container; any hit that reaches the container
         // itself falls through to the parent, which owns resize borders and the Snap Layouts button.
@@ -241,6 +255,7 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
         SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", L"0");
     }
 
+    trace::mark("webview.controller.call");
     const std::shared_ptr<std::atomic<bool>> alive = m_alive;
     const std::uint64_t generation = m_env->generation();
 
@@ -288,6 +303,8 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                                  : env3->CreateCoreWebView2CompositionController(m_parent, handler.Get());
         if (!BOSON_HR_CHECK(hr)) {
             m_creating = false;
+        } else if (m_config.serve_boson_assets) {
+            ProtocolHandler::warm_up(env);
         }
         return;
     }
@@ -313,11 +330,16 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                              : env->CreateCoreWebView2Controller(m_container, handler.Get());
     if (!BOSON_HR_CHECK(hr)) {
         m_creating = false;
+        return;
+    }
+    if (m_config.serve_boson_assets) {
+        ProtocolHandler::warm_up(env); // the browser needs ~200 ms to start; the UI thread is idle until then
     }
 }
 
 void WebView::on_controller_created(HRESULT result, ICoreWebView2Controller* controller) {
     m_creating = false;
+    trace::mark("webview.controller.created");
     if (!hr_check(result, "CreateCoreWebView2Controller callback") || controller == nullptr) {
         m_composition_controller.Reset();
         return;
@@ -335,7 +357,9 @@ void WebView::on_controller_created(HRESULT result, ICoreWebView2Controller* con
     }
 
     configure_new_controller();
+    trace::mark("webview.configured");
     register_event_handlers();
+    trace::mark("webview.events_registered");
 
     if (!m_restore_url.empty()) {
         navigate(m_restore_url);
@@ -351,6 +375,8 @@ void WebView::configure_new_controller() {
         BOSON_HR_CHECK(m_composition_controller->put_RootVisualTarget(m_visual.Get()));
     }
 
+    m_controller_bounds_valid = false; // a new controller has not been given any bounds or visibility yet
+    m_applied_controller_visible = -1;
     apply_bounds();
     apply_visibility();
     set_transparent_background(m_config.transparent_background);
@@ -361,9 +387,7 @@ void WebView::configure_new_controller() {
     }
     apply_settings(effective);
 
-    if (m_memory_target != MemoryUsageTarget::Normal) {
-        set_memory_usage_target(m_memory_target);
-    }
+    apply_memory_target();
 
     if (m_config.serve_boson_assets) {
         BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(L"boson://app/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
@@ -402,6 +426,7 @@ void WebView::close() noexcept {
     m_visual.Reset();
     if (m_container != nullptr) {
         ShowWindow(m_container, SW_HIDE);
+        m_applied_container_visible = 0;
     }
     if (m_env) {
         m_env->unregister_webview(this);
@@ -422,7 +447,7 @@ void WebView::detach_from_environment() noexcept {
 }
 
 void WebView::reattach_to_environment() {
-    if (m_closed || m_creating || m_controller != nullptr || !m_env) {
+    if (m_closed || m_discarded || m_creating || m_controller != nullptr || !m_env) {
         return;
     }
     m_creating = true;
@@ -440,9 +465,46 @@ void WebView::resize(int width, int height) noexcept {
     set_bounds(RECT{0, 0, width, height});
 }
 
+bool WebView::defer_bounds_while_hidden() noexcept {
+    // A hidden windowed WebView is not on screen: moving its container and resizing its controller (a round
+    // trip into the browser process, plus a layout of an invisible page) would be wasted work on every window
+    // resize. The latest bounds are applied by set_visible(true), before the WebView is shown.
+    if (m_visible || m_config.hosting != HostingMode::Windowed || m_controller == nullptr || !m_controller_bounds_valid) {
+        return false;
+    }
+    m_bounds_pending = true;
+    return true;
+}
+
 void WebView::set_bounds(RECT physical_px) noexcept {
     m_bounds = physical_px;
     m_has_bounds = true;
+    if (defer_bounds_while_hidden()) {
+        return;
+    }
+    apply_bounds();
+}
+
+void WebView::set_bounds(RECT physical_px, BoundsBatch& batch) noexcept {
+    m_bounds = physical_px;
+    m_has_bounds = true;
+    if (defer_bounds_while_hidden()) {
+        return;
+    }
+    if (m_config.hosting == HostingMode::Windowed && m_container != nullptr && m_parent != nullptr) {
+        const int width = std::max(0L, m_bounds.right - m_bounds.left);
+        const int height = std::max(0L, m_bounds.bottom - m_bounds.top);
+        const RECT target{m_bounds.left, m_bounds.top, m_bounds.left + width, m_bounds.top + height};
+        if (m_container_rect_valid && EqualRect(&m_container_rect, &target) != FALSE) {
+            apply_controller_bounds(); // only the controller can still be out of date (first layout after creation)
+            return;
+        }
+        if (batch.stage(*this, m_container, m_parent, target)) {
+            m_container_rect = target;
+            m_container_rect_valid = true;
+            return;
+        }
+    }
     apply_bounds();
 }
 
@@ -458,6 +520,7 @@ void WebView::set_bounds_dip(RECT dip) noexcept {
 }
 
 void WebView::apply_bounds() noexcept {
+    m_bounds_pending = false;
     const int width = std::max(0L, m_bounds.right - m_bounds.left);
     const int height = std::max(0L, m_bounds.bottom - m_bounds.top);
 
@@ -473,20 +536,53 @@ void WebView::apply_bounds() noexcept {
         return;
     }
 
-    if (m_container != nullptr) {
-        SetWindowPos(
-            m_container,
-            nullptr,
-            m_bounds.left,
-            m_bounds.top,
-            width,
-            height,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    apply_container_bounds();
+    apply_controller_bounds();
+}
+
+void WebView::apply_container_bounds() noexcept {
+    if (m_container == nullptr) {
+        return;
     }
-    if (m_controller != nullptr) {
-        BOSON_HR_CHECK(m_controller->put_Bounds(RECT{0, 0, width, height}));
-        BOSON_HR_CHECK(m_controller->NotifyParentWindowPositionChanged());
+    const int width = std::max(0L, m_bounds.right - m_bounds.left);
+    const int height = std::max(0L, m_bounds.bottom - m_bounds.top);
+    const RECT target{m_bounds.left, m_bounds.top, m_bounds.left + width, m_bounds.top + height};
+    if (m_container_rect_valid && EqualRect(&m_container_rect, &target) != FALSE) {
+        return;
     }
+    SetWindowPos(m_container, nullptr, target.left, target.top, width, height, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    m_container_rect = target;
+    m_container_rect_valid = true;
+}
+
+void WebView::apply_controller_bounds() noexcept {
+    if (m_controller == nullptr) {
+        return;
+    }
+    const int width = std::max(0L, m_bounds.right - m_bounds.left);
+    const int height = std::max(0L, m_bounds.bottom - m_bounds.top);
+    const bool resized = !m_controller_bounds_valid || m_controller_size.cx != width || m_controller_size.cy != height;
+    const bool moved = !m_controller_bounds_valid || m_controller_origin.x != m_bounds.left || m_controller_origin.y != m_bounds.top;
+    if (!resized && !moved) {
+        return;
+    }
+    // The controller's bounds are relative to its container, so a pure move needs no put_Bounds (a round trip
+    // into the browser process that the old code paid for every WebView on every layout).
+    if (resized && !BOSON_HR_CHECK(m_controller->put_Bounds(RECT{0, 0, width, height}))) {
+        return;
+    }
+    m_controller_size = SIZE{width, height};
+    m_controller_origin = POINT{m_bounds.left, m_bounds.top};
+    m_controller_bounds_valid = true;
+    // NotifyParentWindowPositionChanged is a call into the browser process too, and a scroll or drag would pay it
+    // per WebView per frame. The first move after a quiet period notifies at once (popups opened right after it are placed
+    // correctly); moves that follow within kNotifyThrottleMs only arm a trailing notification.
+    const ULONGLONG now = GetTickCount64();
+    if (!resized && m_container != nullptr && now - m_last_position_notify < kNotifyThrottleMs) {
+        SetTimer(m_container, kNotifyTimerId, kNotifyThrottleMs, nullptr);
+        return;
+    }
+    notify_parent_window_position_changed();
 }
 
 void WebView::set_visible(bool visible) noexcept {
@@ -494,8 +590,15 @@ void WebView::set_visible(bool visible) noexcept {
         m_hidden_since = std::chrono::steady_clock::now();
     }
     m_visible = visible;
+    if (visible && m_discarded) {
+        m_discarded = false;
+        reattach_to_environment();
+    }
     if (visible && m_memory_target != MemoryUsageTarget::Normal) {
         set_memory_usage_target(MemoryUsageTarget::Normal);
+    }
+    if (visible && m_bounds_pending) {
+        apply_bounds();
     }
     apply_visibility();
 }
@@ -503,23 +606,32 @@ void WebView::set_visible(bool visible) noexcept {
 void WebView::set_parent_minimized(bool minimized) noexcept {
     m_parent_minimized = minimized;
     apply_visibility();
+    apply_memory_target();
 }
 
 void WebView::set_keep_visible_when_minimized(bool keep) noexcept {
     m_keep_visible_when_minimized = keep;
     apply_visibility();
+    apply_memory_target();
 }
 
 void WebView::apply_visibility() noexcept {
-    if (m_container != nullptr) {
+    // set_visible(x) is called on every layout by some hosts; ShowWindow and put_IsVisible (a call into the
+    // browser process) are only issued when the state they would set actually changes.
+    if (m_container != nullptr && m_applied_container_visible != static_cast<int>(m_visible)) {
         ShowWindow(m_container, m_visible ? SW_SHOWNA : SW_HIDE);
+        m_applied_container_visible = static_cast<int>(m_visible);
     }
     if (m_config.composition && m_visual) {
         m_config.composition->set_visible(m_visual.Get(), m_visible);
         m_config.composition->commit();
     }
     if (m_controller != nullptr) {
-        BOSON_HR_CHECK(m_controller->put_IsVisible((m_visible && (!m_parent_minimized || m_keep_visible_when_minimized)) ? TRUE : FALSE));
+        const int controller_visible = (m_visible && (!m_parent_minimized || m_keep_visible_when_minimized)) ? 1 : 0;
+        if (m_applied_controller_visible != controller_visible &&
+            BOSON_HR_CHECK(m_controller->put_IsVisible(controller_visible != 0 ? TRUE : FALSE))) {
+            m_applied_controller_visible = controller_visible;
+        }
     }
 }
 
@@ -551,9 +663,28 @@ void WebView::bring_to_front() noexcept {
         return;
     }
     if (m_container != nullptr) {
+        if (is_top_content_child()) {
+            return; // already above every other content window: layouts that call this every frame cost nothing
+        }
         SetWindowPos(m_container, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         raise_caption_overlay();
     }
+}
+
+bool WebView::is_top_content_child() const noexcept {
+    if (m_parent == nullptr) {
+        return false;
+    }
+    HWND overlay = static_cast<HWND>(GetPropW(m_parent, kCaptionOverlayProp));
+    for (HWND child = GetWindow(m_parent, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (child == m_container) {
+            return true;
+        }
+        if (child != overlay && GetPropW(child, L"BosonKeepOnTop") == nullptr) {
+            return false;
+        }
+    }
+    return false;
 }
 
 void WebView::send_to_back() noexcept {
@@ -593,6 +724,10 @@ bool WebView::set_corner_radius(float radius_px) noexcept {
 }
 
 void WebView::notify_parent_window_position_changed() noexcept {
+    if (m_container != nullptr) {
+        KillTimer(m_container, kNotifyTimerId);
+    }
+    m_last_position_notify = GetTickCount64();
     if (m_controller != nullptr) {
         BOSON_HR_CHECK(m_controller->NotifyParentWindowPositionChanged());
     }
@@ -608,6 +743,7 @@ bool WebView::navigate(std::string_view url) const {
     if (wide.empty()) {
         return false;
     }
+    trace::mark("webview.navigate");
     return BOSON_HR_CHECK(m_webview->Navigate(wide.c_str()));
 }
 
@@ -898,8 +1034,18 @@ bool WebView::post_web_message_as_json(std::string_view json) const {
     if (m_webview == nullptr) {
         return false;
     }
-    const std::wstring wide = utf8_to_wide(json);
-    if (wide.empty() && !json.empty()) {
+    // One reusable UTF-16 buffer per thread: PostWebMessageAsJson copies the text before it returns.
+    thread_local std::wstring wide;
+    utf8_to_wide_into(json, wide);
+    const bool ok = post_web_message_as_json_wide(wide);
+    if (wide.capacity() > kMaxRetainedWideChars) {
+        std::wstring{}.swap(wide); // do not pin a multi-megabyte buffer after one large message
+    }
+    return ok;
+}
+
+bool WebView::post_web_message_as_json_wide(const std::wstring& wide) const {
+    if (m_webview == nullptr || wide.empty()) {
         return false;
     }
     return BOSON_HR_CHECK(m_webview->PostWebMessageAsJson(wide.c_str()));
@@ -942,6 +1088,15 @@ exec::CallbackSender<bool> WebView::try_suspend() {
         "ICoreWebView2_3::TrySuspend");
 }
 
+bool WebView::discard() {
+    if (m_closed || m_discarded || m_controller == nullptr) {
+        return false;
+    }
+    detach_from_environment(); // remembers the URL, drops the event handlers, closes the controller
+    m_discarded = true;
+    return true;
+}
+
 bool WebView::resume() noexcept {
     ComPtr<ICoreWebView2_3> webview3;
     return m_webview != nullptr && BOSON_HR_CHECK(m_webview.As(&webview3)) && BOSON_HR_CHECK(webview3->Resume());
@@ -958,13 +1113,26 @@ std::optional<bool> WebView::is_suspended() const noexcept {
 
 bool WebView::set_memory_usage_target(MemoryUsageTarget target) noexcept {
     m_memory_target = target;
+    return apply_memory_target();
+}
+
+bool WebView::apply_memory_target() noexcept {
+    const bool minimized_low = m_config.low_memory_when_minimized && m_parent_minimized && !m_keep_visible_when_minimized;
+    const MemoryUsageTarget effective = minimized_low ? MemoryUsageTarget::Low : m_memory_target;
+    if (effective == m_applied_memory_target) {
+        return true;
+    }
     ComPtr<ICoreWebView2_19> webview19;
     if (m_webview == nullptr || !BOSON_HR_CHECK(m_webview.As(&webview19))) {
         return false;
     }
-    return BOSON_HR_CHECK(webview19->put_MemoryUsageTargetLevel(
-        target == MemoryUsageTarget::Low ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
-                                         : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL));
+    if (!BOSON_HR_CHECK(webview19->put_MemoryUsageTargetLevel(
+            effective == MemoryUsageTarget::Low ? COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW
+                                                : COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_NORMAL))) {
+        return false;
+    }
+    m_applied_memory_target = effective;
+    return true;
 }
 
 // ---- Composition input -----------------------------------------------------------------------------------
@@ -1005,6 +1173,64 @@ std::optional<COREWEBVIEW2_NON_CLIENT_REGION_KIND> WebView::non_client_region_at
         return std::nullopt;
     }
     return kind;
+}
+
+} // namespace boson::core
+
+namespace boson::core {
+
+// ---- BoundsBatch -------------------------------------------------------------------------------------------
+
+BoundsBatch::BoundsBatch(std::size_t expected)
+    : m_expected(std::max<std::size_t>(expected, 1)) {}
+
+BoundsBatch::~BoundsBatch() {
+    commit();
+}
+
+bool BoundsBatch::stage(WebView& webview, HWND container, HWND parent, const RECT& rect) noexcept {
+    if (m_parent != nullptr && m_parent != parent) {
+        return false; // DeferWindowPos needs one parent for the whole batch
+    }
+    if (m_hdwp == nullptr) {
+        m_hdwp = BeginDeferWindowPos(static_cast<int>(m_expected));
+        if (m_hdwp == nullptr) {
+            return false;
+        }
+        m_parent = parent;
+    }
+    HDWP next = DeferWindowPos(m_hdwp, container, nullptr, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
+                               SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    if (next == nullptr) {
+        // The system freed the structure; apply what was staged so far one by one.
+        m_hdwp = nullptr;
+        m_parent = nullptr;
+        for (WebView* pending : m_pending) {
+            pending->m_container_rect_valid = false;
+            pending->apply_bounds();
+        }
+        m_pending.clear();
+        return false;
+    }
+    m_hdwp = next;
+    try {
+        m_pending.push_back(&webview);
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+void BoundsBatch::commit() noexcept {
+    if (m_hdwp != nullptr) {
+        EndDeferWindowPos(m_hdwp);
+        m_hdwp = nullptr;
+        m_parent = nullptr;
+    }
+    for (WebView* webview : m_pending) {
+        webview->apply_controller_bounds();
+    }
+    m_pending.clear();
 }
 
 } // namespace boson::core

@@ -24,6 +24,33 @@
 namespace boson::core {
 
 class CompositionHost;
+class WebView;
+
+/// @brief Batches the child-window moves of several windowed WebViews (same parent) into one
+/// BeginDeferWindowPos / EndDeferWindowPos pass, then applies each controller's bounds. One batch per layout
+/// frame instead of one SetWindowPos per WebView. Not thread-safe (UI thread only).
+class BoundsBatch {
+public:
+    explicit BoundsBatch(std::size_t expected = 8);
+    ~BoundsBatch();
+
+    BoundsBatch(const BoundsBatch&) = delete;
+    BoundsBatch& operator=(const BoundsBatch&) = delete;
+
+    /// @brief Applies everything staged so far. Idempotent; the destructor calls it.
+    void commit() noexcept;
+
+private:
+    friend class WebView;
+
+    /// @brief Stages a container move; false when the caller must apply it immediately (other parent, API failure).
+    bool stage(WebView& webview, HWND container, HWND parent, const RECT& rect) noexcept;
+
+    std::size_t m_expected;
+    HWND m_parent = nullptr;
+    HDWP m_hdwp = nullptr;
+    std::vector<WebView*> m_pending;
+};
 
 enum class HostingMode {
     /// Each WebView is a child HWND (inside a Boson container window, for z-order). Default; works with
@@ -84,6 +111,10 @@ struct WebViewConfig {
     bool in_private = false;
     /// BCP 47 locale for JavaScript Intl / Date formatting (ICoreWebView2ControllerOptions2::ScriptLocale).
     std::wstring script_locale;
+    /// While the parent window is minimized (and keep_visible_when_minimized is off) the runtime is asked to
+    /// trim this WebView's memory (MemoryUsageTargetLevel Low, ICoreWebView2_19); it returns to the requested
+    /// level on restore. The page keeps its state; only caches are released. docs/PERFORMANCE.md has numbers.
+    bool low_memory_when_minimized = true;
 };
 
 /// @brief One ICoreWebView2Controller. All members must be called on the UI thread.
@@ -153,6 +184,8 @@ public:
     void resize(int width, int height) noexcept;
     /// @brief Bounds in physical pixels relative to the parent client area; any origin.
     void set_bounds(RECT physical_px) noexcept;
+    /// @brief Like set_bounds, but the container move goes through `batch` (applied by BoundsBatch::commit).
+    void set_bounds(RECT physical_px, BoundsBatch& batch) noexcept;
     /// @brief Bounds in DIPs, scaled with GetDpiForWindow(parent).
     void set_bounds_dip(RECT dip) noexcept;
     [[nodiscard]] RECT bounds() const noexcept { return m_bounds; }
@@ -213,6 +246,8 @@ public:
 
     bool set_transparent_background(bool enabled) noexcept;
     bool post_web_message_as_json(std::string_view json) const;
+    /// @brief Same as post_web_message_as_json() for text already converted to UTF-16 (broadcast: convert once).
+    bool post_web_message_as_json_wide(const std::wstring& json) const;
     bool post_web_message_as_string(std::string_view text) const;
 
     // ---- Suspension and memory (#7) ---------------------------------------------------------------------
@@ -221,9 +256,18 @@ public:
     [[nodiscard]] exec::CallbackSender<bool> try_suspend();
     bool resume() noexcept;
     [[nodiscard]] std::optional<bool> is_suspended() const noexcept;
+    /// @brief Closes the controller, and with it the page's renderer process, keeping the container, bounds and
+    /// configuration. The page's state is lost. set_visible(true) creates a new controller and reloads the last
+    /// URL (the wake costs a page load instead of TrySuspend's ~15 ms). This is the "memory matters more than wake
+    /// time" tab sleep (SleepPolicy::discard). False when there is no live controller or it is already discarded.
+    bool discard();
+    [[nodiscard]] bool is_discarded() const noexcept { return m_discarded; }
     /// @brief ICoreWebView2_19::put_MemoryUsageTargetLevel. set_visible(true) restores Normal.
     bool set_memory_usage_target(MemoryUsageTarget target) noexcept;
     [[nodiscard]] MemoryUsageTarget memory_usage_target() const noexcept { return m_memory_target; }
+    /// @brief The level the runtime currently has: memory_usage_target(), or Low while the parent is minimized
+    /// (WebViewConfig::low_memory_when_minimized).
+    [[nodiscard]] MemoryUsageTarget applied_memory_target() const noexcept { return m_applied_memory_target; }
     [[nodiscard]] std::chrono::steady_clock::time_point hidden_since() const noexcept { return m_hidden_since; }
     [[nodiscard]] bool last_known_playing_audio() const noexcept { return m_playing_audio; }
 
@@ -240,6 +284,7 @@ public:
 
 private:
     friend class Environment;
+    friend class BoundsBatch;
 
     static LRESULT CALLBACK container_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param);
 
@@ -250,10 +295,17 @@ private:
     void register_event_handlers();
     void unregister_event_handlers() noexcept;
     void apply_bounds() noexcept;
+    bool defer_bounds_while_hidden() noexcept;
+    /// SetWindowPos on the container, skipped when the container is already there.
+    void apply_container_bounds() noexcept;
+    /// put_Bounds only when the size changed, NotifyParentWindowPositionChanged only when the rect changed.
+    void apply_controller_bounds() noexcept;
     bool dispatch_web_message(const WebMessage& message);
     bool dispatch_resource_request(ICoreWebView2WebResourceRequestedEventArgs* args, std::string_view uri);
     void apply_visibility() noexcept;
     void raise_caption_overlay() const noexcept;
+    /// true when only Boson's keep-on-top overlays are above the container in the parent's z-order.
+    [[nodiscard]] bool is_top_content_child() const noexcept;
     void release_controller() noexcept;
     void detach_from_environment() noexcept;
     void reattach_to_environment();
@@ -292,6 +344,15 @@ private:
 
     RECT m_bounds{};
     bool m_has_bounds = false;
+    RECT m_container_rect{};          // last rect given to the container window
+    bool m_container_rect_valid = false;
+    SIZE m_controller_size{};         // last size given to ICoreWebView2Controller::put_Bounds
+    POINT m_controller_origin{};      // container origin at the last NotifyParentWindowPositionChanged
+    bool m_controller_bounds_valid = false;
+    int m_applied_container_visible = -1;  // last ShowWindow state (1 shown, 0 hidden, -1 unknown)
+    int m_applied_controller_visible = -1; // last put_IsVisible value
+    bool m_bounds_pending = false; // set_bounds arrived while hidden; applied by set_visible(true)
+    ULONGLONG m_last_position_notify = 0; // GetTickCount64 of the last NotifyParentWindowPositionChanged
     bool m_visible = true;
     bool m_parent_minimized = false;
     bool m_keep_visible_when_minimized = false;
@@ -300,8 +361,12 @@ private:
     bool m_playing_audio = false;
     float m_opacity = 1.0f;
     float m_corner_radius = 0.0f;
-    MemoryUsageTarget m_memory_target = MemoryUsageTarget::Normal;
+    MemoryUsageTarget m_memory_target = MemoryUsageTarget::Normal;         ///< what the app asked for
+    MemoryUsageTarget m_applied_memory_target = MemoryUsageTarget::Normal; ///< what the runtime currently has
+    /// Pushes max(requested, minimized-Low) to the runtime when it differs from what is applied.
+    bool apply_memory_target() noexcept;
     std::chrono::steady_clock::time_point m_hidden_since{};
+    bool m_discarded = false;
     std::string m_restore_url;
 
     struct Tokens {

@@ -34,12 +34,33 @@ inline constexpr std::wstring_view kWaitPidSwitch = L"--boson-wait-pid=";
 /// and environment creation cannot fail with 0x8007139F. Returns false on timeout.
 bool wait_for_previous_instance(std::chrono::milliseconds timeout = std::chrono::seconds{15});
 
-/// @brief Graceful shutdown: closes every controller of envs, waits (up to timeout) for each browser
-/// process to exit, then posts WM_QUIT with exit_code. Call on the UI thread.
+/// @brief Graceful shutdown: closes every controller of envs and posts WM_QUIT with exit_code. Call on the UI
+/// thread (hide the window first so the close looks instant).
+///
+/// With the default browser_exit_timeout of 0 the app does not wait for the WebView2 browser process: it is told
+/// to close (it then flushes the profile and exits on its own, as it does for any host that goes away) and the
+/// message loop ends at once. Measured: this removes up to 3 s of blocked shutdown (docs/PERFORMANCE.md). A
+/// positive timeout waits up to that long for BrowserProcessExited first; do that when the process must not
+/// outlive the profile it is using, e.g. before deleting the user data folder or in tests that reuse it.
+/// relaunch() always waits (its successor needs the user data folder).
 void quit(
     std::vector<std::shared_ptr<core::Environment>> envs = {},
-    std::chrono::milliseconds timeout = std::chrono::seconds{3},
+    std::chrono::milliseconds browser_exit_timeout = std::chrono::milliseconds{0},
     int exit_code = 0);
+
+/// @brief Registers work that exit_process() runs before it ends the process (flush the Logger, save a Store,
+/// close a database). Hooks run in reverse registration order, each at most once, on the calling thread.
+/// Anything not covered by a hook is lost by exit_process(): destructors do not run.
+void add_exit_hook(std::function<void()> hook);
+
+/// @brief Runs the registered exit hooks (once). Exceptions thrown by a hook are swallowed.
+void run_exit_hooks() noexcept;
+
+/// @brief Fast exit: run_exit_hooks(), flush the BOSON_TRACE table, then ExitProcess(exit_code). Skips the
+/// destructors of the objects in wWinMain (scheduler thread joins, WebView and COM teardown) which cost
+/// tens of milliseconds at the end of a session. Use as `return` replacement:
+/// `app::exit_process(core::Window::run_message_loop());`
+[[noreturn]] void exit_process(int exit_code);
 
 struct RelaunchOptions {
     std::vector<std::wstring> extra_args;

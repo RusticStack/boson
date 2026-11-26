@@ -1417,6 +1417,39 @@ int main() {
             const double still_us = frame_us([](int) {}, kFrames * 10);
             std::cout << "  apply_layout, " << items.size() << " guests: move " << move_us << " us/frame, move+clip " << clip_us
                       << " us/frame, resize " << resize_us << " us/frame, unchanged " << still_us << " us/frame\n";
+            // Batched moves land: every container sits exactly where its placement says (client coordinates of the parent).
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                items[i].rect = CssRect{.x = 10.0 + static_cast<double>(i) * 7, .y = 20.0 + static_cast<double>(i) * 3, .width = 111, .height = 77};
+                items[i].clip = std::nullopt;
+            }
+            (void)mgr.apply_layout(0, items, 1.0);
+            const auto container_rect = [&](Guest* g) {
+                RECT r{};
+                HWND container = g->webview().container_hwnd();
+                GetWindowRect(container, &r);
+                MapWindowPoints(nullptr, GetParent(container), reinterpret_cast<POINT*>(&r), 2);
+                return r;
+            };
+            for (Guest* g : mgr.guests()) {
+                const RECT want_rect = g->placement().bounds;
+                const RECT got = container_rect(g);
+                WE_CHECK(EqualRect(&want_rect, &got) != FALSE);
+            }
+            // A hidden WebView keeps the latest bounds but only applies them when it is shown again.
+            if (Guest* g0 = mgr.guests().empty() ? nullptr : mgr.guests().front(); g0 != nullptr) {
+                boson::core::WebView& wv0 = g0->webview();
+                const RECT before = container_rect(g0);
+                const RECT moved{before.left + 40, before.top + 25, before.left + 40 + 90, before.top + 25 + 60};
+                wv0.set_visible(false);
+                wv0.set_bounds(moved);
+                const RECT hidden_rect = container_rect(g0);
+                WE_CHECK(EqualRect(&before, &hidden_rect) != FALSE);
+                const RECT stored = wv0.bounds();
+                WE_CHECK(EqualRect(&moved, &stored) != FALSE);
+                wv0.set_visible(true);
+                const RECT shown_rect = container_rect(g0);
+                WE_CHECK(EqualRect(&moved, &shown_rect) != FALSE);
+            }
             for (auto& it : items) {
                 it.visible = false;
             }

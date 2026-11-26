@@ -406,7 +406,7 @@ public:
     // ---- Layout -----------------------------------------------------------------------------------------
     /// @brief Moves, sizes, clips (window region on the container HWND) and shows / hides the guest.
     /// Unchanged placements are skipped.
-    void place(const ElementPlacement& placement);
+    void place(const ElementPlacement& placement, core::BoundsBatch* batch = nullptr);
     [[nodiscard]] const ElementPlacement& placement() const noexcept { return m_placement; }
     [[nodiscard]] std::int32_t z() const noexcept { return m_z; }
     void set_z(std::int32_t z) noexcept { m_z = z; }

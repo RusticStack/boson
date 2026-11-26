@@ -1,6 +1,6 @@
 # Benchmarks
 
-Two pieces live in this repository:
+Three pieces live in this repository:
 
 - **`boson_bench`** (tools/bench/) — a framework-agnostic harness. It launches any executable, follows its whole
   process tree (Toolhelp parent-PID walk, unioned with a job object it creates around the target, so
@@ -8,6 +8,8 @@ Two pieces live in this repository:
   child breaks away from the job), and samples private working set, working set, commit (private bytes),
   handle count and CPU time of the whole tree.
 - **`boson_bench_app`** (examples/bench_app/) — a minimal Boson app with an in-page IPC load test.
+- **`bench/compare/`** + **`bench/run_compare.ps1`** — the same reference app in Boson, Electron, Tauri v2 and Wails v3 with one harness
+  and one command (see "Boson vs Electron vs Tauri v2 vs Wails v3" below).
 
 ## What is measured
 
@@ -229,6 +231,17 @@ Reports land in `build\bench-results\browser\` (`<app>.scenario.json` with every
 | `boson_browser.exe` (Release, LTO, static CRT) | 1,486,848 | 605,866 |
 | `wails_browser.exe` (production, `-s -w`) | 10,578,432 | 4,292,581 |
 
+Optimisation pass (Release, LTO, RTTI off - now the default; see [PERFORMANCE.md](PERFORMANCE.md)):
+
+| Binary | Bytes | ZIP (Deflate, optimal) |
+|---|---:|---:|
+| `boson_demo.exe` (`/MD`) | 1,209,856 | 517,837 |
+| `boson_demo.exe` (single exe, `-DBOSON_SINGLE_EXE=ON`) | 1,463,808 | 642,366 |
+| `boson_browser.exe` (`/MD`) | 1,119,232 | 470,758 |
+| `boson_browser.exe` (single exe) | 1,355,264 | 591,787 |
+| `boson_hello.exe` (`/MD`, minimal app) | 402,432 | 171,739 |
+| `boson_hello.exe` (single exe) | 618,496 | 281,791 |
+
 - `/MD` builds need the Visual C++ 2015-2026 redistributable (`MSVCP140`, `MSVCP140_ATOMIC_WAIT`, `VCRUNTIME140`,
   `VCRUNTIME140_1`), which is often present but is not guaranteed on a clean Windows. The static-CRT build and the
   Wails binary depend only on Windows DLLs. The WebView2 runtime is assumed installed for both (Evergreen).
@@ -263,34 +276,184 @@ Where Wails is ahead or even:
   memory can destroy hidden tabs in Boson too (that is the "destroy + recreate" row).
 - **Resize**: the content follows a resize ~3 ms sooner in Wails (3.7 vs 6.9 ms median; ranges overlap). Boson lays the
   content out from `WM_SIZE` through the WebView2 controller's bounds; the Wails hook calls `SetWindowPos` directly.
-  Live-resize sync is 100 % median for both.
+  Live-resize sync is 100 % median for both. After the layout-batching pass (hidden tabs no longer resized, one
+  `DeferWindowPos` per layout, no redundant shell calls) the median was 6.81 vs 7.36 ms on a heavily loaded machine
+  (ranges overlap; see PERFORMANCE.md): the gap to Wails is not closed.
 - **Shutdown**: Wails' whole process tree is gone ~260 ms after `WM_CLOSE`, Boson's after ~560 ms (measured until every
   process of the tree has exited; not investigated further).
 - **Destroy + recreate** with the default Wails build is in the same range as Boson (82.6 vs 68.1 ms to
   `NavigationCompleted`; the ranges overlap heavily).
 
-## Running the same harness against Electron, Tauri and Wails
+## Boson vs Electron vs Tauri v2 vs Wails v3
 
-No Electron or Tauri toolchain is installed on this machine, so **no numbers are given for them** (Wails v3 is covered by the browser scenario above). To compare the generic startup/idle harness:
+The same small reference app is built in all four frameworks (`bench/compare/`) and driven by one harness
+(`bench/run_compare.ps1`). Nothing here uses `boson_bench`: the harness is PowerShell plus a small C# process-tree
+sampler (`bench/compare/harness/ProcTree.cs`, compiled with `Add-Type`) so that one command builds, runs and reports.
 
-1. Build an equivalent app in each framework: one ~900x640 window, the same static page
-   (copy `examples/bench_app/bench_page.hpp`'s HTML; replace `chrome.webview.postMessage` with the framework's IPC if
-   you also want the IPC numbers) and an echo/ping handler. Build in **release** mode; for a fair comparison also build
-   Boson in Release (`cmake -DCMAKE_BUILD_TYPE=Release`).
-2. Run each with identical flags, e.g.
-```bat
-boson_bench --exe "C:\path\electron-bench\out\electron-bench-win32-x64\electron-bench.exe" --name electron --runs 3 --idle 30 --no-samples --out bench-results
-boson_bench --exe "C:\path\tauri-bench\src-tauri\target\release\tauri-bench.exe" --name tauri --runs 3 --idle 30 --no-samples --out bench-results
-boson_bench --exe "C:\path\wails-bench\bin\wails-bench.exe" --name wails --runs 3 --idle 30 --no-samples --out bench-results
-boson_bench --compare bench-results\boson_bench_app.json bench-results\electron.json bench-results\tauri.json bench-results\wails.json --out bench-results\comparison.md
+### What is compared
+
+| | Boson | Electron | Tauri v2 | Wails v3 |
+|---|---|---|---|---|
+| Source | `bench/compare/boson/` (C++26, `boson_compare_app`) | `bench/compare/electron/` | `bench/compare/tauri/` | `bench/compare/wails/` |
+| Version | this repository | Electron 45.5.0 | tauri 2.12.7 (Cargo.lock) | wails v3.1.0, Go 1.27 |
+| Web engine | system WebView2 | bundled Chromium | system WebView2 | system WebView2 |
+| Build | MSVC, Release, `/O2`, LTO, `/MD` | `@electron/packager`, asar | `cargo build --release --features custom-protocol`, `lto`, `opt-level = "s"`, `panic = "abort"`, strip | `-tags production -trimpath -ldflags "-w -s -H windowsgui"` |
+| Frontend delivery | embedded in the exe, served from memory (`boson://app`) | asar, `file://` | embedded in the exe (`custom-protocol`) | embedded in the exe (asset server) |
+| IPC | `postMessage` -> Bridge -> reflected `Router` on a worker pool | `ipcRenderer.invoke` (contextBridge, sandboxed renderer) | `invoke` (async commands, tokio) | `Call.ByName` (HTTP to the asset server) |
+| Events | `Bridge::emit_to("main")` | `webContents.send` | `emit_to(label)` | `Event.Emit` (broadcast: Wails v3 has no per-window emit) |
+
+The frontend is `bench/compare/shared/` (`index.html`, `style.css`, `app.js`: 48 static cards, byte-identical in all four);
+each framework only adds a 15-line `adapter.js` that maps `invoke(name, arg)` / `listen(event, cb)` to its IPC. Every app has the
+same commands: `config`, `ping(n)`, `echo(text)`, `items()` (a fresh array of 10 000 `{id, name, value, active}` on every call),
+`burst(n)` (emits n events carrying the index), `open_window()` (second window, same page with `?w=2`), `mark(text)` and
+`report(json)` (the last two write files into `COMPARE_DIR` for the harness). Window: 900x640, standard frame, default settings.
+
+### Method
+
+One run = one process tree, launched with `COMPARE_DIR` (marks and results go there) and `COMPARE_CONFIG`. The page drives its own
+timeline and the harness only watches marks and samples the tree, so nothing polls in the app while it idles:
+
+1. **Startup** (wall clock from just before `CreateProcess`): first visible, titled, >= 100x100 px top-level window of the launched
+   process (EnumWindows, 1 ms polling, no process snapshots); **first paint** = page-side timestamp of the second
+   `requestAnimationFrame` after `DOMContentLoaded`; **page ready** = first completed IPC round trip (`ping`). Page timestamps are
+   `performance.timeOrigin + performance.now()`, the same system clock as the harness.
+2. **Idle, 1 window**: 3 s settle, then 30 s of nothing (the page sleeps in one `setTimeout`). Reported: CPU time of every process that
+   ever belonged to the tree (handles are kept, so processes that exit still count) as % of one core and as Mcycles/s
+   (`QueryProcessCycleTime`), context switches/s (sum of thread counters from `NtQuerySystemInformation`; threads that exit
+   in the window take their count with them), and the system-wide busy % of the same window as a noise indicator.
+3. **Memory, 1 window**: median of 5 samples, 400 ms apart, right after the idle window: host (launched) process private bytes and
+   private working set, whole tree private working set (what Task Manager shows as "Memory"), whole tree commit, process /
+   thread / handle counts. The tree is found by a Toolhelp parent-pid walk with a creation-time veto against pid reuse.
+4. **Second window**: `open_window()`; time until its page completes an IPC round trip, then the same memory sampling after 2 s.
+5. **IPC** (all measured in the page with `performance.now()`): 200 warm-up pings; 2000 sequential pings (mean = wall time of
+   the loop / calls, p99 from per-call timings, which Chromium quantises to 100 us); 1000 concurrent pings (calls/s); echo of 1 KiB
+   (500 calls), 64 KiB (200) and 1 MiB (30) of pseudo-random text, each reply verified byte for byte; the 10k-item array (30
+   calls, shape verified); five bursts of 10 000 events counted in the page (order checked, 15 s timeout).
+6. **Shutdown**: `WM_CLOSE` to the tree's windows; time until the launched process has exited, and until every process of the
+   tree is gone (waits on process handles; no polling, because polling the process list during teardown was seen to delay the
+   WebView2 browser process).
+
+5 measured runs after 1 warm-up run per framework, interleaved with a rotating starting framework (round 1: boson, electron, tauri, wails;
+round 2: electron, tauri, wails, boson; ...), 3 s cooldown. The WebView2 user-data folders and the Electron profile are warm (persist
+between runs). The harness makes the app windows topmost without activating them: on a shared machine another window on top of an
+app made Chromium treat it as occluded (rAF paused, renderer at idle priority) and stalled runs for minutes.
+
+Re-run everything (builds all four apps, ~10-15 min the first time, then about 40 min of runs):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File bench\run_compare.ps1                       # -Runs 5 -Warmup 1 -IdleSeconds 30 by default
+powershell -ExecutionPolicy Bypass -File bench\run_compare.ps1 -SkipBuild            # reuse build\rel and the other apps' outputs
+powershell -ExecutionPolicy Bypass -File bench\run_compare.ps1 -Frameworks boson,tauri -Runs 3
 ```
-   For an unpackaged Electron app use `--exe node_modules\electron\dist\electron.exe -- .` from the app folder.
-3. Optional ready signal: have the app write `QueryPerformanceCounter` into `%BOSON_BENCH_DIR%\ready` when its first frame
-   is shown (Tauri: `windows` crate `QueryPerformanceCounter`; Wails/Go: `golang.org/x/sys/windows`; Electron main
-   process: a tiny native addon or skip it) and add `--wait-ready`. Without it, compare "First window" only.
-4. Optional load: implement the `BosonBench.StartLoad` / `load_done` protocol, or drive the app externally with
-   `--load-command`.
-5. Close other heavy programs, run on AC power, and report the machine line from the generated markdown with the numbers.
+
+Needs Node + npm (Electron, downloaded by the packager), Rust/cargo (Tauri), Go + `wails3` (Wails) and the MSVC toolset (Boson);
+pass `-CMakeArgs` for `FETCHCONTENT_SOURCE_DIR_*` when the Boson dependencies are not fetched. Outputs land in
+`build\bench-results\compare\` (`comparison.md`, `sizes.md`, `results.json` with every run, `runs\<fw>-<n>\` with the marks and
+each app's result). The 2026-11-26 baseline is kept in `bench/compare/results/2026-11-26/`. Individual apps:
+`bench\compare\{electron,tauri,wails}\build.ps1`, `cmake --build build\rel --target boson_compare_app`.
+
+### Results (measured 2026-11-26)
+
+- Windows 11 Pro 10.0.26300 (26H2), Intel Core i7-13700KF (24 logical CPUs), 48 GB RAM, WebView2 runtime 158.0.4370.33.
+- **Not a quiet machine**: other agents were building and running UI tests during the whole run (system-wide CPU busy 20-45 % in
+  the idle windows, see the noise row). Medians are robust to that, the min-max ranges show it; all 20 measured runs completed.
+- Boson at commit 71c3757 plus the reference app; Release + LTO, `/MD` (needs the VC++ redistributable, which is not part of the size).
+- Cells are median [min-max] over 5 runs; the best median of a row is bold. Ties inside the noise are not claims.
+
+| Group | Metric | boson | electron | tauri | wails |
+|---|---|---:|---:|---:|---:|
+| Startup | first visible window (ms) | 29 [26-43] | 107 [104-121] | **29 [28-43]** | 381 [306-641] |
+| Startup | first paint (ms) | 312 [273-366] | **202 [197-364]** | 373 [328-400] | 396 [307-658] |
+| Startup | page ready: first IPC round trip (ms) | 314 [274-367] | **204 [198-365]** | 378 [333-408] | 403 [312-672] |
+| Idle 30 s, 1 window | tree CPU (% of one core) | **0.10 [0.05-2.40]** | 1.77 [0.10-5.31] | 0.21 [0.10-2.14] | 1.67 [0.10-5.63] |
+| Idle 30 s, 1 window | tree CPU (Mcycles/s) | **9.1 [7.3-88.9]** | 81.8 [9.9-187.7] | 10.7 [9.3-75.8] | 56.0 [12.6-195.1] |
+| Idle 30 s, 1 window | tree context switches (/s) | 11 [4-527] | 1,125 [97-2,371] | **10 [7-458]** | 411 [47-1,551] |
+| Idle 30 s, 1 window | system-wide CPU busy during the window (%, noise indicator) | 30.7 [20.3-45.4] | 34.0 [30.3-40.6] | 39.0 [31.4-42.5] | 37.3 [33.0-45.4] |
+| Memory, 1 window | host process private bytes (MB) | **4.7 [4.6-4.9]** | 31.4 [31.0-33.2] | 5.6 [5.5-5.7] | 51.6 [51.5-54.9] |
+| Memory, 1 window | host process private working set (MB) | **3.4 [3.3-3.5]** | 23.5 [23.2-24.2] | 4.0 [3.9-4.0] | 6.6 [6.4-9.1] |
+| Memory, 1 window | whole tree private working set (MB) | 92.3 [87.7-92.4] | **91.2 [88.4-94.3]** | 92.3 [90.9-94.1] | 96.2 [94.4-102.8] |
+| Memory, 1 window | whole tree private bytes / commit (MB) | 162.2 [157.8-162.6] | **149.9 [146.9-154.1]** | 163.4 [160.8-166.7] | 212.4 [209.9-218.3] |
+| Memory, 1 window | processes | 7 [7-7] | **4 [4-4]** | 7 [7-7] | 7 [7-7] |
+| Memory, 1 window | threads | 207 [201-210] | **120 [118-123]** | 209 [204-212] | 195 [192-199] |
+| Memory, 1 window | handles | 3,904 [3,877-3,906] | **2,805 [2,796-2,828]** | 3,963 [3,933-3,970] | 4,039 [4,000-4,061] |
+| Memory, 2 windows | second window: request -> its IPC ready (ms) | 101 [99-105] | **89 [75-110]** | 132 [129-222] | 150 [141-748] |
+| Memory, 2 windows | host process private bytes (MB) | **4.9 [4.9-5.0]** | 33.4 [32.2-34.2] | 6.0 [5.8-6.0] | 52.5 [52.3-55.5] |
+| Memory, 2 windows | whole tree private working set (MB) | **107.3 [102.7-107.6]** | 117.1 [115.2-120.7] | 110.0 [109.9-113.4] | 114.9 [111.7-120.2] |
+| Memory, 2 windows | whole tree private bytes / commit (MB) | 200.0 [197.8-202.4] | **195.4 [192.6-201.4]** | 212.7 [210.8-214.9] | 255.5 [250.6-259.1] |
+| Memory, 2 windows | processes | 8 [8-8] | **5 [5-5]** | 8 [8-8] | 8 [8-8] |
+| IPC | ping, sequential: mean (ms) | 0.128 [0.078-0.394] | **0.112 [0.073-0.127]** | 1.507 [0.999-1.817] | 2.272 [1.122-3.041] |
+| IPC | ping, sequential: p99 (ms) | **0.30 [0.20-1.50]** | 0.30 [0.20-0.40] | 2.60 [2.00-3.90] | 4.30 [2.20-7.50] |
+| IPC | ping, 1000 concurrent (calls/s) | 64,935 [39,841-92,593] | **95,238 [50,761-102,041]** | 3,019 [2,396-4,257] | 1,679 [1,337-2,061] |
+| IPC | echo 1 KiB: mean (ms) | 0.143 [0.093-0.210] | **0.129 [0.075-0.155]** | 1.436 [1.150-1.833] | 2.327 [1.366-3.515] |
+| IPC | echo 1 KiB: p99 (ms) | **0.30 [0.20-0.40]** | 0.30 [0.20-0.60] | 2.50 [2.00-3.10] | 3.40 [2.60-6.20] |
+| IPC | echo 64 KiB: mean (ms) | 1.873 [1.482-2.320] | **0.480 [0.334-0.518]** | 4.376 [3.079-5.211] | 12.524 [7.950-14.678] |
+| IPC | echo 64 KiB: p99 (ms) | 2.70 [2.10-3.80] | **1.32 [1.00-2.50]** | 7.37 [4.90-9.14] | 16.60 [10.60-18.40] |
+| IPC | echo 1 MiB: mean (ms) | 26.38 [20.48-31.37] | **2.85 [2.54-4.62]** | 36.04 [29.84-41.30] | 138.16 [97.16-156.74] |
+| IPC | echo 1 MiB: p99 (ms) | 29.6 [22.2-34.1] | **6.4 [4.3-16.3]** | 40.6 [32.6-48.9] | 156.4 [117.6-361.9] |
+| IPC | echo 1 MiB: payload throughput (MiB/s, one way) | 37.9 [31.9-48.8] | **350.9 [216.6-393.7]** | 27.7 [24.2-33.5] | 7.2 [6.4-10.3] |
+| IPC | 10k-item JSON array: mean (ms) | 17.49 [13.00-18.82] | **10.11 [9.50-20.34]** | 11.72 [9.21-12.79] | 17.91 [11.08-19.07] |
+| IPC | 10k-item JSON array: p99 (ms) | 22.2 [14.6-25.2] | 16.2 [13.6-26.3] | **14.5 [10.9-15.4]** | 22.0 [13.8-22.9] |
+| Events | backend -> page burst of 10000 (events/s, median of 5 bursts) | 107,527 [91,408-167,785] | **167,224 [146,843-187,970]** | 23,798 [20,096-33,557] | 14,455 [13,976-25,432] |
+| Lifecycle | shutdown: WM_CLOSE -> app process exited (ms) | 308 [273-468] | 80 [79-115] | 60 [49-113] | **57 [32-77]** |
+| Lifecycle | shutdown: WM_CLOSE -> whole tree gone, incl. WebView2 browser process (ms; capped at 60000) | 308 [273-468] | **81 [79-115]** | 126 [114-297] | 136 [95-190] |
+
+### Sizes
+
+| Framework | Main executable (bytes) | Distribution folder (bytes) | Files | ZIP, Deflate optimal (bytes) |
+|---|---:|---:|---:|---:|
+| boson | 813 056 | 813 056 | 1 | 317 671 |
+| electron | 250 417 664 | 374 629 434 | 73 | 158 448 683 |
+| tauri | 3 228 160 | 3 228 160 | 1 | 1 315 698 |
+| wails | 10 533 888 | 10 533 888 | 1 | 4 271 275 |
+
+- Boson, Tauri and Wails use the WebView2 runtime that ships with Windows 11 / Edge; it is **not** in these sizes (Electron carries its own
+  Chromium, 375 MB in 73 files). The ZIP column is the closest proxy for a download. **No installers were built** (NSIS / WiX / MSIX
+  were not run for any of the four); do not read the ZIP as an installer size.
+- Boson's 813 KB is the `/MD` build; the static-CRT build is ~20 % larger and has no redistributable dependency. Tauri's
+  3.2 MB is `opt-level = "s"` with the default feature set; Wails' 10.5 MB is the Go runtime and its dependencies.
+
+### Reading the results
+
+Where Boson is ahead (outside the noise):
+
+- **Host process memory**: 4.7 MB private bytes against 5.6 (Tauri), 31 (Electron main) and 52 (Wails: Go runtime).
+- **Idle CPU**: median 0.10 % of one core over 30 s, 9 Mcycles/s; Electron and Wails use ~17x the CPU time (1.7-1.8 %) and 6-9x the cycles (56-82 Mcycles/s) and
+  switch contexts 40-100x more often (Electron 1125/s, Wails 411/s, Boson 11/s). Tauri is close (0.21 %, 10 Mcycles/s, 10 switches/s):
+  the two WebView2 hosts behave alike, the spread inside one framework (0.05-2.4 %) is larger than their difference.
+- **First window**: 29 ms (the native window shows before WebView2 starts), tied with Tauri; Electron 107 ms, Wails 381 ms.
+- **Binary**: 0.8 MB / 0.3 MB zipped, 4x smaller than Tauri, 13x smaller than Wails, ~460x smaller than the Electron folder.
+- **IPC against the other two WebView2 hosts**: small-call latency 12-18x lower than Tauri and Wails (0.13 ms vs 1.5 / 2.3 ms), ~20-40x the
+  concurrent call rate, ~4.5-7x the event rate (108k vs 24k / 14k events/s), and 1 MiB echo 1.4x / 5x faster.
+- **Two windows**: lowest whole-tree private working set (107 MB vs 110-117).
+
+Where Boson is **not** ahead:
+
+- **Large payloads and bulk data vs Electron**: Electron's in-process-style Mojo IPC wins clearly. 64 KiB echo 0.48 ms vs 1.87 ms (3.9x), 1 MiB echo
+  2.85 ms vs 26.4 ms (9x; 351 vs 38 MiB/s one way), 10k-item array 10.1 ms vs 17.5 ms (1.7x), event burst 167k/s vs 108k/s (1.6x). WebView2's
+  `postMessage` crosses the browser/renderer process boundary and the page parses JSON strings; this is the biggest gap in the table.
+- **Small-call latency vs Electron**: effectively tied (0.128 ms vs 0.112 ms mean, identical p99 0.30 ms; Boson's range 0.08-0.39 ms is wider);
+  Electron is ahead on concurrent pings (95k vs 65k calls/s).
+- **First paint**: Electron paints at 202 ms, Boson at 312 ms (Tauri 373, Wails 396). All three WebView2 hosts wait for the runtime's
+  browser process and renderer; Chromium in-process startup is simply faster here.
+- **Whole-tree memory is a tie** (private working set 91-92 MB for Electron, Boson and Tauri, Wails 96): the renderer/GPU/network/storage
+  processes of WebView2 (or Electron) dominate and are not under the host's control. Commit (private bytes) is lowest for Electron (150 MB vs
+  162 MB), which also runs 4 processes against 7; Boson, Tauri and Wails are within 2 MB of each other.
+- **Shutdown**: Boson's process needs 308 ms from `WM_CLOSE` to exit; the others 57-80 ms. Electron's whole tree is gone in 81 ms; the WebView2 hosts
+  then wait for the runtime's browser process for another ~65-80 ms (whole tree: Tauri 126 ms, Wails 136 ms; for Boson both numbers are 308 ms).
+- **Tauri 10k-item array p99** (14.5 ms vs 22.2 ms) and mean (11.7 vs 17.5 ms) are better than Boson's; Electron is best on the mean.
+
+### Caveats
+
+- The WebView2 browser process sometimes outlives its host by 10-60 s on this machine (seen with Boson, Tauri and Wails while developing
+  the harness, mostly after earlier runs were killed or while the machine was saturated); the harness waits up to 60 s and never kills in the normal case, and a killed run
+  is followed by a 30 s pause because a killed browser leaves the profile dirty (the next start of that app then takes ~20 s). None of the 20 measured runs needed a kill or a pause: every shutdown in the table finished by itself within 0.5 s. Individual outliers (e.g. 17-60 s) are possible and would
+  show up in the max of the range.
+- Idle CPU and context switches are dominated by Chromium housekeeping that comes and goes (the ranges are wide); with 5 runs the median
+  is stable to a few hundredths of a percent, no more. Cycle counts per second are the less noisy number.
+- A page's timer / rAF / IPC speed in the second window was not compared (only that it comes up and answers).
+- The comparison is "default configuration, production build". Electron could be trimmed (fewer locales, no GPU process, ...), Tauri and
+  Wails have their own tuning knobs, Boson has none applied here; none of that was tried.
+- Windows power plan, AC power and display were whatever the workstation had; the app windows were topmost but not focused.
 
 ## Verification
 
@@ -311,3 +474,46 @@ boson_bench --compare bench-results\boson_bench_app.json bench-results\electron.
   on Windows 10, on a quiet machine, at a DPI other than this machine's, and installer sizes (no NSIS/WiX).
 - The window probe measures window geometry, not presentation: a content HWND in place does not prove its pixels
   were composed in the same frame.
+
+## IPC hot path (optimisation pass)
+
+Native allocation / wake-up counts, per-call cost and end-to-end numbers for the IPC path (Router, Bridge, TaskRunner,
+UiMarshal, UTF-8/UTF-16 conversion, event batching) are in [PERFORMANCE.md](PERFORMANCE.md#ipc-hot-path). Two harnesses were
+added for it: `boson_ipc_bench` (`tests/bench_ipc.cpp`, counts allocations/bytes/wake-ups per call, no WebView needed) and an
+`events_20k` scenario plus `--batch-events` flag in `boson_bench_app`. Summary on this machine (Release, medians of 5
+interleaved runs): ping allocations 10 -> 3 per round trip, response bytes 1136 -> 64, UI wake-ups per call under load 1 -> 0.002,
+1 MiB echo native path 4.1 -> 2.1 ms, page-counted events 150 k/s -> 161 k/s (606 k/s with opt-in batching), 10 MiB echo
+275 -> 240 ms; 1000-ping latency is unchanged within noise. The headline numbers in the table above were not re-measured.
+## Host footprint: threads, modules, idle wake-ups (memory-footprint pass)
+Measured with `bench/memsnap.ps1` on the Release build (details, methods and the WebView2 option experiments in
+[PERFORMANCE.md](PERFORMANCE.md#memory-footprint-threads-and-idle-cost)). Host = the app's own process; median of 5
+interleaved runs, 12 s idle window. `boson_kitchen_sink` (examples/kitchen_sink) is bench_app with every module constructed
+and registered.
+| App | Threads before -> after | Host private WS (MB) before -> after | Host commit (MB) before -> after | Modules before -> after |
+|---|---:|---:|---:|---:|
+| boson_bench_app | 33 -> 15 | 3.29 -> 2.55 | 4.66 -> 3.63 | 44 -> 42 |
+| boson_demo | 36 -> 18 | 3.82 -> 2.88 | 5.50 -> 4.19 | 47 -> 44 |
+| boson_kitchen_sink | 36 -> 18 | 4.45 -> 3.20 | 6.50 -> 4.82 | 56 -> 51 |
+Minimized (tree private WS): bench_app 84.9 -> 77.0 MB, kitchen sink 83.8 -> 75.7 MB. The Debug-build idle numbers in the first
+table of this file predate this pass; they were not re-measured.
+## Lifecycle: start-up and shutdown (measured 2026-11-26, Release + LTO)
+Details, method and rejected ideas: [PERFORMANCE.md](PERFORMANCE.md#startup-shutdown-and-lifecycle). `BOSON_TRACE` (see there)
+prints a per-process timeline of the start-up and shutdown path. Shutdown is WM_CLOSE -> every process of the tree exited
+(`boson_bench`, quiet machine, A/B interleaved), before = `app::quit` waiting for the browser process, after = not waiting:
+| App | Shutdown before (ms, median [min-max]) | after |
+|---|---:|---:|
+| boson_bench_app (10 runs) | 325 [310-341] | 171 [160-260] |
+| boson_demo (8 runs) | 326 [278-341] | 201 [171-245] |
+| boson_browser, 10 tabs (scenario, 5 runs) | 447 [382-484] | 304 [243-336] |
+Start-up is unchanged within noise: first window ~20 ms, first frame ~315-340 ms, of which ~25 ms is Boson and the rest the
+WebView2 runtime starting its processes. Sleeping tabs with `SleepPolicy::discard` (opt-in; 10 tabs, 9 asleep): whole-tree
+private WS 223 -> 168 MB, 17 -> 8 processes, wake 20 -> 70 ms (`boson_browser --sleep-discard`).
+- **Comparison suite (bench/compare, run_compare.ps1)**: all four apps were built and driven end to end by the harness (5 measured runs +
+  1 warm-up each, every run completed, the IPC replies were verified for content). The Boson app builds warning-free (/W4) in Debug (`build\wt`)
+  and Release + LTO; `boson_compare_harness_smoke` (ctest, Debug, ~55 s) runs the harness against the Boson app and passes. The harness
+  was developed against the failure modes described under "Caveats" (occluded windows, killed WebView2 profiles, polling that perturbed
+  shutdown); its process-tree sampler has no unit tests of its own beyond that smoke test.
+- **Not verified for the comparison**: a quiet machine (other agents were working), Windows 10, other DPIs / monitors, battery power,
+  installers (none built), the static-CRT Boson build in the comparison, Electron / Tauri / Wails with their tuning options, a cold
+  (first-ever) WebView2 profile, and anything other than the one workstation. The per-process context-switch figure undercounts threads
+  that exit during the window. The page-side latency timer is quantised to 100 us.

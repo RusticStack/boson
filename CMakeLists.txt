@@ -13,6 +13,12 @@ string(REPLACE "/Ob2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 # Static CRT (/MT): executables no longer need the Visual C++ Redistributable (VCRUNTIME140.dll, MSVCP140.dll),
 # at the cost of a larger .exe. See docs/BENCHMARKS.md for both sizes.
 option(BOSON_STATIC_CRT "Link the MSVC runtime statically (/MT, /MTd)" OFF)
+# One self-contained .exe (docs/SHIPPING.md "Single executable"): static CRT for the whole tree, plus the
+# boson_single_exe(<target>) helper that checks the result imports only Windows system DLLs.
+option(BOSON_SINGLE_EXE "Build self-contained single executables (implies BOSON_STATIC_CRT)" OFF)
+if(BOSON_SINGLE_EXE)
+    set(BOSON_STATIC_CRT ON CACHE BOOL "" FORCE)
+endif()
 if(BOSON_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
@@ -27,6 +33,8 @@ endif()
 
 include(cmake/FetchWebView2.cmake)
 include(cmake/EmbedAssets.cmake)
+include(cmake/BosonSingleExe.cmake)
+include(cmake/BosonPgo.cmake)
 
 include(FetchContent)
 
@@ -114,13 +122,26 @@ if(BOSON_DB_ZEPHYR)
     target_compile_options(zephyrdb_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4702>)
 endif()
 
+# Extra Release switches for experiments (docs/PERFORMANCE.md "Build configuration"). Empty by default: /Gw,
+# /Gy and /Zc:inline produced byte-identical executables under /GL + /OPT:REF,ICF, so they are not set.
+set(BOSON_RELEASE_CODEGEN_FLAGS "" CACHE STRING "Extra MSVC Release compile flags for Boson targets, e.g. /Os")
+# RTTI off in Release: nothing in Boson uses dynamic_cast / typeid (exceptions do not need RTTI). -12 to -17 % exe size.
+# The flag is PUBLIC (an app that links boson_core and uses dynamic_cast / typeid must set -DBOSON_NO_RTTI=OFF).
+option(BOSON_NO_RTTI "Release builds: /GR- (smaller executables; no dynamic_cast / typeid)" ON)
+if(BOSON_NO_RTTI)
+    list(APPEND BOSON_RELEASE_CODEGEN_FLAGS "/GR-")
+endif()
+option(BOSON_AVX2 "Compile with /arch:AVX2 (needs a 2013+ CPU; the default stays baseline x64)" OFF)
+
 add_library(boson_core STATIC
+    src/core/trace.cpp
     src/core/window.cpp
     src/core/webview.cpp
     src/core/webview_events.cpp
     src/core/environment.cpp
     src/core/composition.cpp
     src/core/ui_timer.cpp
+    src/core/text_convert.cpp
     src/core/webview_host.cpp
     src/core/protocol.cpp
     src/exec/task_runner.cpp
@@ -238,13 +259,39 @@ target_compile_definitions(boson_core
 target_compile_options(boson_core
     PUBLIC
         $<$<CXX_COMPILER_ID:MSVC>:/std:c++latest;/Zc:__cplusplus;/permissive-;/EHsc;/bigobj;/utf-8;/W4>
-        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2;/Ob3;/DNDEBUG>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2;/Ob3;/DNDEBUG;${BOSON_RELEASE_CODEGEN_FLAGS}>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<BOOL:${BOSON_AVX2}>>:/arch:AVX2>
 )
 
 target_link_options(boson_core
     PUBLIC
-        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/OPT:REF;/OPT:ICF;/DEBUG:NONE;/INCREMENTAL:NO>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/OPT:REF;/OPT:ICF;/INCREMENTAL:NO>
+        # /GENPROFILE only writes its .pgd when a PDB is produced (verified), so PGO builds link with /DEBUG.
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>,$<STREQUAL:${BOSON_PGO},OFF>>:/DEBUG:NONE>
+        $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>,$<NOT:$<STREQUAL:${BOSON_PGO},OFF>>>:/DEBUG>
 )
+
+# Delay-load system DLLs that only some modules use, so an app that does not call them never maps them:
+# every DLL costs a LoadLibrary at startup plus its (and its dependencies') private data. The delay-load helper
+# (delayimp.lib) resolves the import on the first call. Consumers inherit the flags (PUBLIC link options).
+#  - Not delay-loaded on purpose: dbghelp (the crash reporter must not load a DLL from inside an unhandled
+#    exception filter, so it stays an ordinary import) and everything user32 / gdi32 / ole32 / shell32 / advapi32 /
+#    dwmapi / shcore / shlwapi / version, which the window and the WebView2 loader map before main anyway.
+#  - /IGNORE:4199: not every executable that links boson_core ends up importing every listed DLL (unused objects
+#    of the static library are dropped), and an unused /DELAYLOAD entry is warning LNK4199.
+option(BOSON_DELAYLOAD "Delay-load rarely used system DLLs (uiautomationcore, dcomp, winhttp, crypt32, ...)" ON)
+set(BOSON_DELAYLOAD_DLLS
+    uiautomationcore.dll dcomp.dll windowscodecs.dll crypt32.dll bcrypt.dll winhttp.dll wintrust.dll
+    wtsapi32.dll ws2_32.dll runtimeobject.dll propsys.dll)
+if(MSVC AND BOSON_DELAYLOAD)
+    set(_boson_delay_flags "/IGNORE:4199")
+    foreach(_dll IN LISTS BOSON_DELAYLOAD_DLLS)
+        list(APPEND _boson_delay_flags "/DELAYLOAD:${_dll}")
+    endforeach()
+    target_link_options(boson_core PUBLIC ${_boson_delay_flags})
+    target_link_libraries(boson_core PUBLIC delayimp)
+    target_compile_definitions(boson_core PUBLIC BOSON_DELAYLOAD_ENABLED=1)
+endif()
 
 target_link_libraries(boson_core
     PUBLIC
@@ -338,6 +385,13 @@ add_executable(boson_gpu_demo WIN32
 )
 target_link_libraries(boson_gpu_demo PRIVATE boson_gpu)
 
+# The smallest app: reference for the single-executable build.
+option(BOSON_HELLO_EMBED_BOOTSTRAPPER "Compile the WebView2 Evergreen bootstrapper into boson_hello (single-exe only)" OFF)
+add_executable(boson_hello WIN32
+    examples/hello/main.cpp
+)
+target_link_libraries(boson_hello PRIVATE boson_core)
+
 add_executable(boson_demo WIN32
     examples/demo/main.cpp
 )
@@ -385,6 +439,50 @@ add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
 )
 target_link_libraries(boson_bench_app PRIVATE boson_core)
+boson_enable_pgo(boson_bench_app)
+
+# Every module constructed and registered: measures the idle cost of an app that uses all of Boson
+# (docs/PERFORMANCE.md, "Memory footprint, threads and idle cost").
+add_executable(boson_kitchen_sink WIN32
+    examples/kitchen_sink/main.cpp
+)
+target_link_libraries(boson_kitchen_sink PRIVATE boson_core)
+
+# Comparison suite reference app (bench/compare): the Boson counterpart of the Electron, Tauri v2 and Wails v3 apps.
+# The shared frontend is embedded as byte arrays (cmake/EmbedFile.cmake; main.cpp uses #embed when BOSON_USE_CPP26_EMBED is set).
+set(BOSON_COMPARE_GENERATED "${CMAKE_BINARY_DIR}/generated/compare")
+set(BOSON_COMPARE_HEADERS "")
+foreach(_entry IN ITEMS
+        "bench/compare/shared/index.html|compare_index_html|kCompareIndexHtml"
+        "bench/compare/shared/style.css|compare_style_css|kCompareStyleCss"
+        "bench/compare/shared/app.js|compare_app_js|kCompareAppJs"
+        "bench/compare/boson/adapter.js|compare_adapter_js|kCompareAdapterJs")
+    string(REPLACE "|" ";" _parts "${_entry}")
+    list(GET _parts 0 _in)
+    list(GET _parts 1 _stem)
+    list(GET _parts 2 _name)
+    add_custom_command(
+        OUTPUT "${BOSON_COMPARE_GENERATED}/${_stem}.hpp"
+        COMMAND "${CMAKE_COMMAND}" "-DIN=${CMAKE_CURRENT_SOURCE_DIR}/${_in}" "-DOUT=${BOSON_COMPARE_GENERATED}/${_stem}.hpp" "-DNAME=${_name}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${_in}" cmake/EmbedFile.cmake
+        VERBATIM)
+    list(APPEND BOSON_COMPARE_HEADERS "${BOSON_COMPARE_GENERATED}/${_stem}.hpp")
+endforeach()
+add_executable(boson_compare_app WIN32
+    bench/compare/boson/main.cpp
+    ${BOSON_COMPARE_HEADERS}
+)
+target_link_libraries(boson_compare_app PRIVATE boson_core)
+target_include_directories(boson_compare_app PRIVATE "${BOSON_COMPARE_GENERATED}"
+    bench/compare/shared bench/compare/boson)
+# Harness smoke test: bench/run_compare.ps1 drives the Boson reference app through startup, idle, two windows, every IPC
+# test and shutdown (1 s idle window instead of 30 s) and fails on any failed run. Needs Windows PowerShell and WebView2.
+add_test(NAME boson_compare_harness_smoke
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/bench/run_compare.ps1"
+        -SkipBuild -SkipSizes -Frameworks boson -Runs 1 -Warmup 0 -IdleSeconds 1 -SettleSeconds 1 -CooldownSeconds 0
+        -BuildDir "$<TARGET_FILE_DIR:boson_compare_app>" -Out "${CMAKE_BINARY_DIR}/bench-results/compare-smoke" -FailOnError)
+set_tests_properties(boson_compare_harness_smoke PROPERTIES LABELS integration TIMEOUT 240)
 
 # Process-tree benchmark harness (any framework's executable).
 add_executable(boson_bench
@@ -572,6 +670,14 @@ add_executable(boson_menu_tests
 target_link_libraries(boson_menu_tests PRIVATE boson_core)
 add_test(NAME boson_menu_tests COMMAND boson_menu_tests)
 set_tests_properties(boson_menu_tests PROPERTIES TIMEOUT 180)
+# Lifecycle: exit hooks, lazy scheduler pool, quit() without waiting for the browser process, WebView::discard()
+# and SleepPolicy::discard. Opens one small SW_SHOWNOACTIVATE window; the WebView2 part skips without a runtime.
+add_executable(boson_lifecycle_tests
+    tests/test_lifecycle.cpp
+)
+target_link_libraries(boson_lifecycle_tests PRIVATE boson_core)
+add_test(NAME boson_lifecycle_tests COMMAND boson_lifecycle_tests)
+set_tests_properties(boson_lifecycle_tests PROPERTIES LABELS integration TIMEOUT 240)
 # Window manager: windows by label, owned/modal windows, close veto, state per label, Window controller and
 # emit_to(label). Opens small SW_SHOWNOACTIVATE windows; the WebView2 part skips without a runtime.
 add_executable(boson_window_tests
@@ -605,6 +711,14 @@ endif()
 # boson::db backend benchmark (not a test; run a Release build by hand).
 add_executable(boson_db_bench tests/bench_db.cpp)
 target_link_libraries(boson_db_bench PRIVATE boson_core)
+# IPC hot-path tests: conversions, Router table, envelopes, UiMarshal coalescing, Bridge event batching.
+add_executable(boson_ipc_hotpath_tests tests/test_ipc_hotpath.cpp)
+target_link_libraries(boson_ipc_hotpath_tests PRIVATE boson_core)
+add_test(NAME boson_ipc_hotpath_tests COMMAND boson_ipc_hotpath_tests)
+set_tests_properties(boson_ipc_hotpath_tests PROPERTIES TIMEOUT 240)
+# IPC hot-path micro-benchmark: allocations / bytes / wake-ups / ns per call (not a test; run a Release build by hand).
+add_executable(boson_ipc_bench tests/bench_ipc.cpp)
+target_link_libraries(boson_ipc_bench PRIVATE boson_core)
 # Native app services: hashing, ZIP, staged installs, HTTP client (loopback server), boson::db backends.
 add_executable(boson_native_services_tests
     tests/test_native_services.cpp
@@ -716,6 +830,13 @@ if(BOSON_BUN_EXECUTABLE)
 endif()
 add_test(NAME boson_terminal_tests COMMAND boson_terminal_tests)
 set_tests_properties(boson_terminal_tests PROPERTIES LABELS integration TIMEOUT 600)
+# Opt-in: bundle the Microsoft.Windows.Console.ConPTY redistributable (conpty.dll + OpenConsole.exe, MIT, signed) next
+# to the terminal executables for ~20x ConPTY output throughput. See cmake/BosonConPTY.cmake and docs/TERMINAL.md.
+option(BOSON_BUNDLE_CONPTY "Download the ConPTY NuGet package and copy conpty.dll + OpenConsole.exe next to the terminal executables" OFF)
+if(BOSON_BUNDLE_CONPTY)
+    include(cmake/BosonConPTY.cmake)
+    boson_bundle_conpty(boson_terminal_tests)
+endif()
 # Terminal demo (examples/terminal_demo): split panes of ConPTY terminals rendered by xterm.js + WebGL. Needs bun
 # and frontend/node_modules (cd frontend && bun install: @xterm/* are devDependencies); skipped otherwise.
 set(BOSON_TERMINAL_DEMO_WEB "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/web")
@@ -749,6 +870,21 @@ if(BOSON_BUN_EXECUTABLE AND EXISTS "${BOSON_XTERM_DIR}/xterm/css/xterm.css" AND 
     add_dependencies(boson_terminal_demo boson_terminal_demo_assets)
     target_include_directories(boson_terminal_demo PRIVATE "${_demo_gen}")
     target_link_libraries(boson_terminal_demo PRIVATE boson_core)
+    if(BOSON_BUNDLE_CONPTY)
+        boson_bundle_conpty(boson_terminal_demo)
+    endif()
     add_test(NAME boson_terminal_demo_selftest COMMAND boson_terminal_demo --selftest)
     set_tests_properties(boson_terminal_demo_selftest PROPERTIES LABELS integration TIMEOUT 120)
+endif()
+
+# ---- Single executable (docs/SHIPPING.md): self-contained exes + a ctest that checks their imports -----------
+boson_enable_pgo(boson_browser)
+if(BOSON_SINGLE_EXE)
+    if(BOSON_HELLO_EMBED_BOOTSTRAPPER)
+        boson_single_exe(boson_hello EMBED_BOOTSTRAPPER)
+    else()
+        boson_single_exe(boson_hello)
+    endif()
+    boson_single_exe(boson_demo)
+    boson_single_exe(boson_browser)
 endif()

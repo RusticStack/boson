@@ -52,7 +52,7 @@ handler / command / bound method in C++ with `ElectronIpc::handle`, then move ho
 | Renderer crash | `render-process-gone` | — | — | `on_process_failed` |
 | Background tab throttling / memory | `backgroundThrottling` | — | — | `WebViewHost::set_sleep_policy`, `WebView::try_suspend / set_memory_usage_target` |
 | Single instance | `app.requestSingleInstanceLock` | `tauri-plugin-single-instance` | `SingleInstance` option | `app::single_instance` (argv + cwd forwarded) |
-| Quit / relaunch | `app.quit / app.relaunch` | `app.exit / restart` | `app.Quit` | `app::quit` (waits for the browser process), `app::relaunch` |
+| Quit / relaunch | `app.quit / app.relaunch` | `app.exit / restart` | `app.Quit` | `app::quit` (does not wait for the browser process unless given a timeout), `app::exit_process`, `app::relaunch` |
 | File open / save / folder dialogs | `dialog.showOpenDialog` | `tauri-plugin-dialog` | `application.OpenFileDialog` | `native::open_file_dialog / save_file_dialog`; JS `Boson.open_file_dialog / save_file_dialog` |
 | Notifications | `Notification` | `tauri-plugin-notification` | notifications service | `native::Notifier`; JS `Boson.notify` (richer toasts: provided by the `notifications` module (parallel workstream)) |
 

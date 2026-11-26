@@ -1,6 +1,7 @@
 #include <boson/core/window.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/titlebar/caption_accessibility.hpp>
 #include <boson/titlebar/window_chrome.hpp>
 
@@ -102,6 +103,7 @@ void Window::destroy() noexcept {
 }
 
 bool Window::create(HINSTANCE instance, int show_cmd) {
+    trace::mark("window.create.begin");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     const HINSTANCE h_inst = instance != nullptr ? instance : GetModuleHandleW(nullptr);
@@ -155,8 +157,10 @@ bool Window::create(HINSTANCE instance, int show_cmd) {
         apply_borderless_frame();
     }
 
+    trace::mark("window.create.styled");
     ShowWindow(m_hwnd, show_cmd);
     UpdateWindow(m_hwnd);
+    trace::mark("window.create.shown");
     return true;
 }
 
@@ -165,6 +169,7 @@ int Window::run_message_loop() {
     while (true) {
         const BOOL res = GetMessageW(&msg, nullptr, 0, 0);
         if (res <= 0) {
+            trace::mark("message_loop.exit");
             break;
         }
         TranslateMessage(&msg);
@@ -174,8 +179,10 @@ int Window::run_message_loop() {
 }
 
 void Window::post_invoke() const noexcept {
-    if (m_hwnd != nullptr) {
-        PostMessageW(m_hwnd, kWmBosonInvoke, 0, 0);
+    if (m_hwnd != nullptr && !PostMessageW(m_hwnd, kWmBosonInvoke, 0, 0)) {
+        // UiMarshal coalesces wake-ups (one pending PostMessage per batch), so a lost post would stall the queue
+        // until the next enqueue: fall back to a one-shot timer that runs the invoke callback.
+        SetTimer(m_hwnd, kInvokeRetryTimerId, 10, nullptr);
     }
 }
 
@@ -847,7 +854,18 @@ LRESULT Window::handle_message(UINT msg, WPARAM w_param, LPARAM l_param) {
         }
         return 0;
 
+    case WM_TIMER:
+        if (w_param == kInvokeRetryTimerId) {
+            KillTimer(m_hwnd, kInvokeRetryTimerId);
+            if (m_on_invoke) {
+                m_on_invoke();
+            }
+            return 0;
+        }
+        break;
+
     case WM_CLOSE: {
+        trace::mark("window.wm_close");
         WindowEvent event{.kind = WindowEventKind::CloseRequested, .dpi = dpi()};
         emit(event);
         if (!event.cancel) {
