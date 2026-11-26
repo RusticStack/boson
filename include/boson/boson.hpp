@@ -22,9 +22,15 @@
 #include <boson/ipc/router.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
+#include <boson/ipc/controllers/menu_controller.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
+#include <boson/native/tray.hpp>
+
+#include <boson/menu/accelerator.hpp>
+#include <boson/menu/menu.hpp>
+#include <boson/menu/menu_bar.hpp>
 
 #include <boson/app/lifecycle.hpp>
 
