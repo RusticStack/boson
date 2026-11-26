@@ -112,3 +112,6 @@
 #include <boson/assets/asset_registry.hpp>
 
 #include <boson/compat/electron_ipc.hpp>
+
+// Native GPU surfaces live in the opt-in boson_gpu library (D3D11/D3D12/DirectWrite/Vulkan interop):
+// #include <boson/gpu/gpu.hpp> and link boson_gpu. See docs/GPU.md.

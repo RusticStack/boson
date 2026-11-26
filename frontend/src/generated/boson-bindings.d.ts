@@ -293,6 +293,75 @@ export interface FsGrantRequest {
     read_only: boolean;
 }
 
+export interface GpuSurfaceInfo {
+    id: number;
+    width: number;
+    height: number;
+    content: string;
+    layer: string;
+}
+
+export interface GpuRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface GpuCreateSurfaceRequest {
+    content: string;
+    layer: string;
+    z_index: number;
+    rect: GpuRect;
+    scale: number;
+    opaque: boolean;
+    vsync: boolean;
+    page: string;
+}
+
+export interface GpuOk {
+    ok: boolean;
+}
+
+export interface GpuSurfaceRef {
+    id: number;
+}
+
+export interface GpuBoundsUpdate {
+    id: number;
+    rect: GpuRect;
+    clip?: GpuRect | null;
+    visible: boolean;
+}
+
+export interface GpuSetBoundsRequest {
+    scale: number;
+    surfaces: Array<GpuBoundsUpdate>;
+}
+
+export interface GpuAdapter {
+    name: string;
+    vendor_id: number;
+    device_id: number;
+    dedicated_video_memory_mb: number;
+    software: boolean;
+}
+
+export interface GpuInfo {
+    backend: string;
+    adapter: GpuAdapter;
+    feature_level: string;
+    tearing_supported: boolean;
+    compositor_clock: boolean;
+    vulkan_available: boolean;
+    vulkan_version: string;
+    hosting: string;
+    device_generation: number;
+    surfaces: number;
+    contents: Array<string>;
+    adapters: Array<GpuAdapter>;
+}
+
 export interface LogWriteRequest {
     level: string;
     category: string;
@@ -1127,6 +1196,12 @@ export interface StoreChangedEvent_DemoSettings {
     change: StoreChange;
 }
 
+export interface GpuDeviceLostEvent {
+    reason: string;
+    recovered: boolean;
+    generation: number;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1192,6 +1267,11 @@ export interface BosonApi {
     "Fs.unwatch": (params: FsWatchIdRequest) => Promise<FsBoolResponse>;
     "Fs.scopes": () => Promise<FsScopesResponse>;
     "Fs.grant_from_dialog": (params: FsGrantRequest) => Promise<FsGrantResponse>;
+    "Gpu.create_surface": (params: GpuCreateSurfaceRequest) => Promise<GpuSurfaceInfo>;
+    "Gpu.destroy": (params: GpuSurfaceRef) => Promise<GpuOk>;
+    "Gpu.set_bounds": (params: GpuSetBoundsRequest) => Promise<GpuOk>;
+    "Gpu.request_frame": (params: GpuSurfaceRef) => Promise<GpuOk>;
+    "Gpu.info": () => Promise<GpuInfo>;
     "Log.write": (params: LogWriteRequest) => Promise<void>;
     "Menu.set_application_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
     "Menu.clear_application_menu": () => Promise<void>;
@@ -1318,4 +1398,5 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "gpu:device_lost": GpuDeviceLostEvent;
 }

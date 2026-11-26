@@ -44,6 +44,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | **Shell** | Taskbar progress / overlay / thumbnail buttons / jump lists | `setProgressBar`, `setOverlayIcon`, `setThumbarButtons`, `setJumpList` | — | `shell::Taskbar`, `set_jump_list` |
 | | Native caption buttons + accessibility | `titleBarOverlay` | — | `titlebar::Titlebar` (drawn caption buttons, Snap Layouts, UIA, system menu, theme events) |
 | **Diagnostics** | Crash reporting & logging | `crashReporter` | Community | `shipping::CrashReporter` (minidumps, WebView2 process failures) + rotating `Logger` |
+| **Rendering** | Native GPU content in the window | `OffscreenCanvas`/WebGL/WebGPU only (native via addons + separate windows) | — (raw-window-handle + wgpu in a separate surface) | `gpu::Surface`: D3D11/D3D12 flip-model swap chains composited below/above the WebView, `<boson-surface>` layout from HTML, 2D batch renderer with DirectWrite text grid, Vulkan interop, device-lost recovery ([GPU.md](GPU.md)) |
 | **Porting** | Framework API shims | — | — | `compat/electron.ts`, `compat/tauri.ts`, `compat/wails.ts` + C++ `ElectronIpc` |
 | **Platforms** | OS Support | Windows, macOS, Linux | Windows, macOS, Linux (+ Mobile) | Windows 10/11 only (macOS/Linux intentionally out of scope for now) |
 
@@ -61,6 +62,7 @@ Done (see the module docs):
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
+- Native GPU surfaces, 2D renderer, Vulkan interop: [GPU.md](GPU.md)
 - Electron/Tauri/Wails shims and migration tables: [MIGRATION.md](MIGRATION.md), [PORTING.md](PORTING.md); measurements: [BENCHMARKS.md](BENCHMARKS.md)
 
 Remaining:

@@ -444,6 +444,7 @@ Each module has its own guide with API, examples and an honest verification sect
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
+| Native GPU surfaces (D3D11/D3D12, 2D renderer, Vulkan interop) | [GPU.md](GPU.md) | `Gpu` | `gpu:device_lost` |
 | Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
 
-Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`, `boson_store_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.
+Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`, `boson_store_tests`, `boson_gpu_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.
