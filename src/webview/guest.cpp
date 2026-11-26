@@ -953,7 +953,7 @@ bool Guest::download_resume(std::uint64_t download_id) {
 
 // ---- Layout -------------------------------------------------------------------------------------------------
 
-void Guest::place(const ElementPlacement& placement) {
+void Guest::place(const ElementPlacement& placement, core::BoundsBatch* batch) {
     const bool first = !m_placed;
     m_placed = true;
     if (!first && placement == m_placement) {
@@ -968,7 +968,11 @@ void Guest::place(const ElementPlacement& placement) {
         return;
     }
     if (first || !previous.visible || EqualRect(&previous.bounds, &placement.bounds) == FALSE) {
-        m_webview.set_bounds(placement.bounds);
+        if (batch != nullptr) {
+            m_webview.set_bounds(placement.bounds, *batch);
+        } else {
+            m_webview.set_bounds(placement.bounds);
+        }
     }
     if (first || !previous.visible || previous.clipped != placement.clipped ||
         (placement.clipped && EqualRect(&previous.clip, &placement.clip) == FALSE)) {
@@ -1447,6 +1451,7 @@ std::size_t GuestManager::apply_layout(std::uint64_t owner_id, std::span<const G
     }
     std::size_t changed = 0;
     bool restack_needed = false;
+    core::BoundsBatch batch(items.size());
     for (const GuestLayoutItem& item : items) {
         Guest* guest = find(item.id);
         if (guest == nullptr || guest->owner_id() != owner_id) {
@@ -1454,7 +1459,7 @@ std::size_t GuestManager::apply_layout(std::uint64_t owner_id, std::span<const G
         }
         const ElementPlacement placement = compute_element_placement(item.rect, item.clip, device_pixel_ratio, origin, item.visible);
         if (!guest->m_placed || !(placement == guest->placement())) {
-            guest->place(placement);
+            guest->place(placement, &batch);
             ++changed;
         }
         if (guest->z() != item.z || !guest->m_stacked) {
@@ -1463,6 +1468,7 @@ std::size_t GuestManager::apply_layout(std::uint64_t owner_id, std::span<const G
             restack_needed = true;
         }
     }
+    batch.commit();
     if (restack_needed) {
         restack(owner_id);
     }

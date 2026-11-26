@@ -125,13 +125,15 @@ public:
     void layout(const core::LayoutContext& ctx) {
         const int header = m_fullscreen ? 0 : ctx.px(40);
         const RECT content{0, header, ctx.width(), ctx.height()};
+        core::BoundsBatch batch(m_tabs.size() + 1);
         for (Tab& tab : m_tabs) {
-            tab.webview->set_bounds(content);
+            tab.webview->set_bounds(content, batch);
         }
         if (m_shell != nullptr) {
             // While the settings modal is open the chrome covers the whole window, above the active tab.
             m_shell->set_visible(!m_fullscreen);
-            m_shell->set_bounds(RECT{0, 0, ctx.width(), m_modal ? ctx.height() : header});
+            m_shell->set_bounds(RECT{0, 0, ctx.width(), m_modal ? ctx.height() : header}, batch);
+            batch.commit();
             m_shell->bring_to_front();
         }
     }

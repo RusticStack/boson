@@ -263,7 +263,9 @@ Where Wails is ahead or even:
   memory can destroy hidden tabs in Boson too (that is the "destroy + recreate" row).
 - **Resize**: the content follows a resize ~3 ms sooner in Wails (3.7 vs 6.9 ms median; ranges overlap). Boson lays the
   content out from `WM_SIZE` through the WebView2 controller's bounds; the Wails hook calls `SetWindowPos` directly.
-  Live-resize sync is 100 % median for both.
+  Live-resize sync is 100 % median for both. After the layout-batching pass (hidden tabs no longer resized, one
+  `DeferWindowPos` per layout, no redundant shell calls) the median was 6.81 vs 7.36 ms on a heavily loaded machine
+  (ranges overlap; see PERFORMANCE.md): the gap to Wails is not closed.
 - **Shutdown**: Wails' whole process tree is gone ~260 ms after `WM_CLOSE`, Boson's after ~560 ms (measured until every
   process of the tree has exited; not investigated further).
 - **Destroy + recreate** with the default Wails build is in the same range as Boson (82.6 vs 68.1 ms to

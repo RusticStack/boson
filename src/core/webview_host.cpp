@@ -204,9 +204,11 @@ void WebViewHost::relayout() {
     if (m_layout) {
         m_layout(*this, context);
     } else {
+        BoundsBatch batch(m_webviews.size());
         for (const auto& webview : m_webviews) {
-            webview->set_bounds(context.client_px);
+            webview->set_bounds(context.client_px, batch);
         }
+        batch.commit();
     }
     if (m_composition) {
         m_composition->commit();
