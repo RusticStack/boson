@@ -113,6 +113,11 @@ export const bosonMethodParams: Readonly<Record<string, readonly string[] | null
     "Shortcut.unregister_all": [],
     "Shortcut.is_registered": ["accelerator"],
     "Shortcut.list": [],
+    "Store.get": [],
+    "Store.set": ["theme", "search_engine", "tab_sleep_minutes", "hardware_acceleration"],
+    "Store.patch": null,
+    "Store.reset": [],
+    "Store.info": [],
     "Taskbar.set_progress": ["state", "value"],
     "Taskbar.clear_progress": [],
     "Taskbar.set_overlay": ["icon", "description"],
@@ -154,5 +159,6 @@ export const bosonMethodParams: Readonly<Record<string, readonly string[] | null
     "WebView.delete_all_cookies": [],
     "WebView.clear_data": ["kinds", "start_time", "end_time"],
     "WebView.get_profile": [],
-    "WebView.set_color_scheme": ["scheme"]
+    "WebView.set_color_scheme": ["scheme"],
+    "WebView.probe_drm": ["key_systems", "video_codecs", "audio_codecs", "encryption_schemes", "create_media_keys", "check_hdcp", "timeout_ms"]
 };

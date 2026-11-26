@@ -168,65 +168,66 @@ Reports land in `build\bench-results\browser\` (`<app>.scenario.json` with every
 
 - Windows 11 Pro 10.0.26300 (26H2), Intel Core i7-13700KF (24 logical CPUs), 48 GB RAM, WebView2 runtime 158.0.4370.33.
 - Boson: MSVC 14.52, Release, `/O2`, LTO (`/GL` + `/LTCG`), `/MD`. Wails v3.1.0, Go 1.27.4.
-- **Noisy machine**: other agents were compiling and running tests at the same time. The spread columns show it;
-  read the medians, and treat single-digit-ms differences as noise.
+- **Quiet machine**: final run with no other builds or tests running (5 measured runs + 1 warm-up per app,
+  interleaved). Medians with [min-max]. Single outliers remain: one Wails cold start took ~20.8 s and one Boson
+  shutdown took ~17.6 s (WebView2 browser-process exit); the medians are not affected.
 
 | Group | Metric | boson | wails | wails_debounce1 |
 |---|---|---:|---:|---:|
-| Startup | first window (ms) | 32 [22-50] | 314 [228-408] | 257 [198-430] |
-| Startup | shell first paint (ms) | 279 [229-428] | 396 [314-615] | 382 [275-572] |
-| Startup | first tab NavigationCompleted (ms) | 239 [194-370] | 347 [279-540] | 345 [234-513] |
-| Memory tabs_1 | host private bytes (MB) | 4.7 [4.7-4.8] | 52.1 [52.1-53.6] | 53.1 [52.3-53.5] |
-| Memory tabs_1 | WebView2 tree working set (MB) | 358.6 [355.5-360.4] | 375.2 [373.5-380.6] | 376.7 [375.0-379.4] |
-| Memory tabs_1 | whole tree private WS (MB) | 99.5 [96.6-101.5] | 106.2 [105.6-111.8] | 106.9 [106.3-110.7] |
+| Startup | first window (ms) | 38 [12-383] | 256 [215-20793] | 289 [200-415] |
+| Startup | shell first paint (ms) | 306 [242-817] | 407 [292-20917] | 411 [307-543] |
+| Startup | first tab NavigationCompleted (ms) | 261 [207-768] | 364 [250-20909] | 349 [257-496] |
+| Memory tabs_1 | host private bytes (MB) | 4.7 [4.7-4.8] | 52.0 [51.8-52.3] | 52.2 [52.1-52.8] |
+| Memory tabs_1 | WebView2 tree working set (MB) | 358.5 [355.6-363.0] | 378.3 [375.2-379.4] | 376.5 [376.1-377.8] |
+| Memory tabs_1 | whole tree private WS (MB) | 100.1 [97.6-101.2] | 110.2 [107.1-110.7] | 108.2 [107.6-108.2] |
 | Memory tabs_1 | processes | 8 [8-8] | 8 [8-8] | 8 [8-8] |
-| Memory tabs_5 | host private bytes (MB) | 7.1 [6.1-7.6] | 67.0 [65.6-68.7] | 65.4 [63.8-68.1] |
-| Memory tabs_5 | WebView2 tree working set (MB) | 648.1 [644.0-689.4] | 811.3 [807.5-812.9] | 806.6 [754.1-810.2] |
-| Memory tabs_5 | whole tree private WS (MB) | 221.4 [218.4-258.4] | 365.6 [360.7-369.2] | 360.6 [295.1-363.7] |
-| Memory tabs_5 | processes | 12 [12-13] | 12 [12-12] | 12 [12-12] |
-| Memory tabs_5_slept | host private bytes (MB) | 7.1 [6.1-7.6] | 65.8 [64.7-67.3] | 64.4 [62.6-67.1] |
-| Memory tabs_5_slept | WebView2 tree working set (MB) | 482.6 [481.7-524.0] | 528.0 [490.4-529.3] | 526.2 [488.6-530.4] |
-| Memory tabs_5_slept | whole tree private WS (MB) | 187.3 [183.8-223.2] | 262.1 [211.3-264.8] | 260.7 [210.3-262.1] |
-| Memory tabs_5_slept | processes | 12 [12-13] | 8 [8-8] | 8 [8-8] |
-| Memory tabs_10 | host private bytes (MB) | 7.4 [6.5-7.9] | 66.8 [65.2-68.6] | 66.2 [63.5-68.4] |
-| Memory tabs_10 | WebView2 tree working set (MB) | 798.1 [795.9-839.0] | 1033.2 [1029.1-1060.9] | 1067.5 [1025.3-1076.2] |
-| Memory tabs_10 | whole tree private WS (MB) | 266.3 [262.2-302.4] | 348.0 [346.5-389.8] | 395.7 [340.9-401.9] |
-| Memory tabs_10 | processes | 17 [17-18] | 17 [17-17] | 17 [17-17] |
-| Memory tabs_10_slept | host private bytes (MB) | 7.4 [6.5-7.9] | 66.0 [64.7-67.6] | 65.3 [63.0-67.9] |
-| Memory tabs_10_slept | WebView2 tree working set (MB) | 551.9 [546.5-599.3] | 495.3 [494.6-498.4] | 495.2 [492.3-533.0] |
-| Memory tabs_10_slept | whole tree private WS (MB) | 220.4 [218.7-265.3] | 220.0 [216.5-224.5] | 220.6 [214.1-264.7] |
-| Memory tabs_10_slept | processes | 17 [17-18] | 8 [8-8] | 8 [8-8] |
-| Tabs | new tab -> NavigationCompleted (ms, median) | 51.4 [47.8-104.9] | 77.9 [62.8-134.2] | 66.3 [62.9-140.0] |
-| Tabs | tab switch -> 2 frames (ms, median) | 17.5 [14.6-30.1] | 44.5 [42.4-90.0] | 39.2 [35.5-61.5] |
-| Tabs | tab switch -> 2 frames (ms, p95) | 21.1 [18.6-68.1] | 54.2 [50.2-104.8] | 66.7 [39.6-73.1] |
-| Tabs | wake sleeping tab -> 2 frames (ms, median) | 15.2 [13.4-23.6] | 121.8 [105.3-184.3] | 143.6 [93.7-200.7] |
-| Tabs | destroy + recreate -> NavigationCompleted (ms, median) | 68.1 [47.5-163.4] | 82.6 [67.6-143.8] | 161.1 [68.8-401.6] |
-| Tabs | destroy + recreate -> 2 frames (ms, median) | 73.4 [51.8-176.4] | 105.1 [88.5-182.1] | 199.5 [88.9-460.6] |
+| Memory tabs_5 | host private bytes (MB) | 7.0 [6.7-7.2] | 65.4 [65.2-67.4] | 65.7 [65.1-66.7] |
+| Memory tabs_5 | WebView2 tree working set (MB) | 647.9 [641.0-649.6] | 812.1 [808.4-816.2] | 808.7 [744.0-814.1] |
+| Memory tabs_5 | whole tree private WS (MB) | 219.8 [216.6-224.4] | 366.5 [363.8-369.9] | 363.7 [285.4-370.1] |
+| Memory tabs_5 | processes | 12 [12-12] | 12 [12-12] | 12 [12-12] |
+| Memory tabs_5_slept | host private bytes (MB) | 7.0 [6.7-7.2] | 63.9 [63.7-65.8] | 64.5 [64.3-65.7] |
+| Memory tabs_5_slept | WebView2 tree working set (MB) | 479.9 [459.5-482.7] | 531.3 [529.6-534.5] | 528.6 [482.8-529.9] |
+| Memory tabs_5_slept | whole tree private WS (MB) | 184.2 [170.3-185.6] | 264.3 [262.5-266.7] | 262.3 [206.1-264.4] |
+| Memory tabs_5_slept | processes | 12 [12-12] | 8 [8-8] | 8 [8-8] |
+| Memory tabs_10 | host private bytes (MB) | 7.4 [7.2-7.6] | 65.2 [64.0-67.2] | 66.0 [65.5-67.1] |
+| Memory tabs_10 | WebView2 tree working set (MB) | 799.7 [791.7-800.3] | 1073.5 [1030.4-1079.0] | 1066.7 [1020.4-1075.1] |
+| Memory tabs_10 | whole tree private WS (MB) | 263.7 [261.2-266.9] | 401.3 [346.2-405.3] | 395.8 [337.3-401.0] |
+| Memory tabs_10 | processes | 17 [17-17] | 17 [17-17] | 17 [17-17] |
+| Memory tabs_10_slept | host private bytes (MB) | 7.4 [7.2-7.6] | 64.0 [63.7-66.3] | 65.3 [64.8-67.0] |
+| Memory tabs_10_slept | WebView2 tree working set (MB) | 546.9 [486.7-549.1] | 497.3 [492.8-500.4] | 496.3 [489.4-537.0] |
+| Memory tabs_10_slept | whole tree private WS (MB) | 217.7 [188.5-219.8] | 221.1 [217.2-223.7] | 221.5 [212.9-270.9] |
+| Memory tabs_10_slept | processes | 17 [17-17] | 8 [8-8] | 8 [8-8] |
+| Tabs | new tab -> NavigationCompleted (ms, median) | 56.1 [49.4-117.3] | 69.3 [63.6-96.8] | 111.0 [63.3-215.3] |
+| Tabs | tab switch -> 2 frames (ms, median) | 19.6 [18.2-21.9] | 39.7 [38.7-60.4] | 45.3 [38.6-75.1] |
+| Tabs | tab switch -> 2 frames (ms, p95) | 25.0 [21.2-40.1] | 51.3 [44.9-72.9] | 66.5 [46.0-81.8] |
+| Tabs | wake sleeping tab -> 2 frames (ms, median) | 17.6 [15.7-22.5] | 122.0 [105.3-166.7] | 126.8 [99.8-283.5] |
+| Tabs | destroy + recreate -> NavigationCompleted (ms, median) | 62.9 [57.0-73.2] | 68.0 [66.7-123.9] | 100.3 [67.2-198.1] |
+| Tabs | destroy + recreate -> 2 frames (ms, median) | 70.8 [61.9-74.5] | 88.8 [88.4-156.3] | 127.1 [88.7-239.8] |
 | Tabs | tabs asleep at 5 / at 10 | 4 / 9 | 4 / 9 | 4 / 9 |
-| IPC | ping round trip (ms, mean of 1000) | 0.151 [0.059-0.224] | 2.333 [2.058-5.397] | 2.323 [1.072-4.324] |
-| IPC | ping round trip (ms, p99) | 0.300 [0.200-0.500] | 5.103 [3.301-29.419] | 6.200 [1.500-38.510] |
-| IPC | 1000 concurrent pings (calls/s) | 75188 [33557-106383] | 1217 [698-1609] | 1203 [902-2556] |
-| IPC | 1 MiB echo round trip (ms, median of 5) | 21.9 [14.1-32.7] | 139.5 [109.2-265.8] | 147.2 [74.7-249.9] |
-| IPC | event emit, 10000 events (events/s) | 131234 [74571-194553] | 16359 [9350-24624] | 15908 [10089-27159] |
-| Window | move: content follows after (ms, median) | 0.94 [0.50-1.07] | 51.51 [50.52-52.32] | 2.54 [1.71-7.09] |
-| Window | move: content follows after (ms, p95) | 1.67 [0.73-2.57] | 53.86 [51.13-76.09] | 3.40 [1.85-21.37] |
-| Window | 60 Hz drag: frames in sync (%) | 100 [100-100] | 2 [2-2] | 100 [90-100] |
-| Window | 60 Hz drag: catch-up after last step (ms) | 0.68 [0.28-0.93] | 50.56 [50.37-52.40] | 1.69 [1.19-2.03] |
-| Window | resize: content follows after (ms, median) | 6.91 [3.48-7.85] | 3.73 [2.34-13.44] | 4.98 [2.30-13.49] |
-| Window | 60 Hz live resize: frames in sync (%) | 100 [100-100] | 100 [30-100] | 100 [68-100] |
-| Window | 60 Hz live resize: catch-up (ms) | 3.51 [2.18-8.04] | 3.40 [2.28-17.80] | 2.46 [1.44-7.79] |
-| Lifecycle | whole scenario (s) | 32.9 [32.8-35.1] | 41.4 [39.8-48.6] | 40.8 [38.2-151.2] |
-| Lifecycle | shutdown (ms) | 563 [449-1352] | 257 [194-368] | 252 [192-1410] |
+| IPC | ping round trip (ms, mean of 1000) | 0.076 [0.065-0.131] | 1.102 [1.020-3.241] | 1.492 [1.066-8.309] |
+| IPC | ping round trip (ms, p99) | 0.200 [0.200-0.300] | 1.400 [1.300-5.801] | 2.400 [1.300-28.602] |
+| IPC | 1000 concurrent pings (calls/s) | 91743 [72464-100000] | 2534 [1406-2786] | 2154 [923-2623] |
+| IPC | 1 MiB echo round trip (ms, median of 5) | 16.9 [15.1-20.5] | 81.6 [73.9-151.1] | 86.6 [81.0-189.2] |
+| IPC | event emit, 10000 events (events/s) | 193424 [135318-202429] | 29744 [16708-34990] | 29595 [12127-36010] |
+| Window | move: content follows after (ms, median) | 0.85 [0.52-1.37] | 50.92 [50.84-51.09] | 2.32 [1.67-2.97] |
+| Window | move: content follows after (ms, p95) | 1.64 [0.76-1.95] | 51.53 [51.43-51.65] | 2.82 [1.82-3.98] |
+| Window | 60 Hz drag: frames in sync (%) | 100 [100-100] | 2 [2-2] | 100 [37-100] |
+| Window | 60 Hz drag: catch-up after last step (ms) | 0.47 [0.37-0.61] | 50.51 [50.35-50.62] | 1.71 [1.61-425.77] |
+| Window | resize: content follows after (ms, median) | 3.31 [3.01-4.91] | 3.42 [1.98-4.35] | 3.22 [1.79-8.40] |
+| Window | 60 Hz live resize: frames in sync (%) | 100 [100-100] | 100 [68-100] | 100 [70-100] |
+| Window | 60 Hz live resize: catch-up (ms) | 2.90 [1.91-4.13] | 2.49 [2.00-7.39] | 2.47 [1.70-14.42] |
+| Lifecycle | whole scenario (s) | 33.2 [32.9-34.4] | 39.4 [37.6-58.4] | 43.3 [36.5-66.0] |
+| Lifecycle | shutdown (ms) | 500 [382-17579] | 205 [192-596] | 273 [192-644] |
 
 ### Sizes
 
 | Binary | Bytes | ZIP (Deflate, optimal) |
 |---|---:|---:|
-| `boson_demo.exe` (Release, LTO, `/MD`, demo frontend embedded) | 1,175,552 | 465,532 |
-| `boson_demo.exe` (Release, LTO, static CRT, `-DBOSON_STATIC_CRT=ON`) | 1,422,848 | 589,967 |
-| `boson_browser.exe` (Release, LTO, `/MD`, with the benchmark driver) | 1,250,304 | 484,305 |
-| `boson_browser.exe` (Release, LTO, static CRT) | 1,481,216 | 605,084 |
-| `wails_browser.exe` (production, `-s -w`) | 10,577,408 | 4,292,431 |
+| `boson_demo.exe` (Release, LTO, `/MD`, demo frontend embedded) | 1,337,344 | 531,229 |
+| `boson_demo.exe` (Release, LTO, static CRT, `-DBOSON_STATIC_CRT=ON`) | 1,586,688 | 653,998 |
+| `boson_browser.exe` (Release, LTO, `/MD`, with the benchmark driver) | 1,255,424 | 485,170 |
+| `boson_browser.exe` (Release, LTO, static CRT) | 1,486,848 | 605,866 |
+| `wails_browser.exe` (production, `-s -w`) | 10,578,432 | 4,292,581 |
 
 - `/MD` builds need the Visual C++ 2015-2026 redistributable (`MSVCP140`, `MSVCP140_ATOMIC_WAIT`, `VCRUNTIME140`,
   `VCRUNTIME140_1`), which is often present but is not guaranteed on a clean Windows. The static-CRT build and the
