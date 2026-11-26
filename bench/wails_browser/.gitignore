@@ -1,0 +1,7 @@
+# Build output and files copied in by build.ps1 (the sources live in bench/shared/).
+/bin/
+*.syso
+/frontend/bench_shell.js
+/frontend/bench_tab.html
+# The repository ignores build/; the Wails syso inputs here are sources.
+!/build/

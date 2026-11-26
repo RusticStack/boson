@@ -139,7 +139,7 @@ void WebViewHost::destroy(WebView& webview) {
         m_capture = nullptr;
         ReleaseCapture();
     }
-    std::erase(m_sleeping, webview.id());
+    forget_sleeping(webview.id());
     std::erase(m_sleep_exempt, webview.id());
     if (m_on_destroy) {
         m_on_destroy(webview);
@@ -231,7 +231,15 @@ void WebViewHost::set_sleep_exempt(WebView& webview, bool exempt) {
 }
 
 bool WebViewHost::is_sleeping(const WebView& webview) const noexcept {
-    return std::ranges::find(m_sleeping, webview.id()) != m_sleeping.end();
+    // A WebView that was shown since it was put to sleep is awake (set_visible(true) resumed it), even before
+    // the next check_sleep_now() cleans the entry up; its hidden_since() moved on when it was hidden again.
+    return !webview.is_visible() && std::ranges::any_of(m_sleeping, [&webview](const SleepingEntry& entry) {
+        return entry.id == webview.id() && entry.hidden_since == webview.hidden_since();
+    });
+}
+
+void WebViewHost::forget_sleeping(std::uint64_t id) noexcept {
+    std::erase_if(m_sleeping, [id](const SleepingEntry& entry) { return entry.id == id; });
 }
 
 void WebViewHost::check_sleep_now() {
@@ -243,8 +251,11 @@ void WebViewHost::check_sleep_now() {
         WebView& webview = *ptr;
         const std::uint64_t id = webview.id();
         if (webview.is_visible()) {
-            std::erase(m_sleeping, id); // set_visible(true) already resumed it and restored the memory target
+            forget_sleeping(id); // set_visible(true) already resumed it and restored the memory target
             continue;
+        }
+        if (!is_sleeping(webview)) {
+            forget_sleeping(id); // woken and hidden again since it was put to sleep: eligible again
         }
         if (!webview.is_ready() || is_sleeping(webview) ||
             std::ranges::find(m_sleep_exempt, id) != m_sleep_exempt.end() ||
@@ -252,7 +263,7 @@ void WebViewHost::check_sleep_now() {
             now - webview.hidden_since() < m_sleep_policy->hidden_timeout) {
             continue;
         }
-        m_sleeping.push_back(id);
+        m_sleeping.push_back(SleepingEntry{.id = id, .hidden_since = webview.hidden_since()});
         if (m_sleep_policy->lower_memory_target) {
             webview.set_memory_usage_target(MemoryUsageTarget::Low);
         }

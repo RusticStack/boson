@@ -359,6 +359,16 @@ int main() {
     IT_CHECK(pump_until([&]() { return slept; }, std::chrono::seconds{10}));
     IT_CHECK(host->is_sleeping(b));
     IT_CHECK(b.is_suspended() == std::optional<bool>{true});
+    // Woken (shown) and hidden again before the next check: it must become eligible for sleep again instead of
+    // staying marked as sleeping forever.
+    b.set_visible(true);
+    IT_CHECK(!host->is_sleeping(b));
+    slept = false;
+    b.set_visible(false); // no message pumped in between, so no sleep check ran
+    IT_CHECK(!host->is_sleeping(b));
+    IT_CHECK(pump_until([&]() { return slept; }, std::chrono::seconds{10}));
+    IT_CHECK(host->is_sleeping(b));
+    IT_CHECK(b.is_suspended() == std::optional<bool>{true});
     host->set_sleep_policy(std::nullopt);
     b.set_visible(true);
     host->check_sleep_now();

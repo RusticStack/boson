@@ -254,7 +254,7 @@ cd frontend && bun run build && cd ..
 cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build/release'
 ```
 
-This produces a single statically linked executable (`WebView2LoaderStatic.lib` embedded, no `WebView2Loader.dll` needed) with LTO and debug symbols stripped.
+This produces a single executable (`WebView2LoaderStatic.lib` embedded, no `WebView2Loader.dll` needed) with LTO and debug symbols stripped: `boson_demo.exe` is 1,175,552 bytes with its frontend embedded (MSVC 14.52, measured 2026-11-26). It links the MSVC runtime dynamically, so target machines need the Visual C++ 2015-2026 redistributable (`MSVCP140.dll`, `MSVCP140_ATOMIC_WAIT.dll`, `VCRUNTIME140.dll`, `VCRUNTIME140_1.dll`). Configure with `-DBOSON_STATIC_CRT=ON` to link it statically (`/MT`) instead: 1,422,848 bytes, no runtime dependency beyond Windows itself.
 
 ---
 

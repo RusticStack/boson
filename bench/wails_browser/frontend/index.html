@@ -1,0 +1,67 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Wails Browser</title>
+<!-- Header shell of the Wails v3 benchmark browser; the counterpart of examples/browser/shell_html.hpp (Boson). -->
+<style>
+:root{color-scheme:dark;--bar:rgba(28,28,30,.92);--tab:rgba(255,255,255,.06);--tab-active:rgba(255,255,255,.16);--text:#f2f2f2;--muted:#a0a0a0}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:transparent;font:12px "Segoe UI Variable","Segoe UI",sans-serif;color:var(--text);overflow:hidden;user-select:none}
+#bar{position:fixed;left:0;top:0;right:0;height:40px;display:flex;align-items:center;gap:6px;padding-left:8px;background:var(--bar);--wails-draggable:drag}
+#tabs{display:flex;gap:4px;min-width:0;flex:0 1 auto;overflow:hidden}
+.tab{--wails-draggable:no-drag;display:flex;align-items:center;gap:6px;height:28px;max-width:200px;min-width:90px;padding:0 8px;border-radius:6px;background:var(--tab);cursor:default}
+.tab.active{background:var(--tab-active)}.tab .t{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex:1}
+.tab .x{opacity:.6;border:0;background:none;color:inherit;width:18px;height:18px;border-radius:4px}.tab .x:hover{background:rgba(255,255,255,.15);opacity:1}
+.tab .s{font-size:10px;color:var(--muted)}
+button.i{--wails-draggable:no-drag;border:0;background:none;color:var(--text);height:28px;min-width:28px;border-radius:6px}button.i:hover{background:rgba(255,255,255,.1)}
+#url{--wails-draggable:no-drag;flex:1 1 280px;min-width:120px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:var(--text);padding:0 10px;font:inherit}
+#spacer{flex:0 0 12px;height:100%}
+.win{--wails-draggable:no-drag;display:flex;height:100%}.win button{border:0;background:none;color:var(--text);width:46px;height:40px}
+.win button:hover{background:rgba(255,255,255,.1)}.win button.close:hover{background:#c42b1c}
+</style></head><body>
+<div id="bar">
+  <div id="tabs"></div><button class="i" id="new" title="New tab">+</button>
+  <button class="i" id="back" title="Back">&#8592;</button><button class="i" id="fwd" title="Forward">&#8594;</button><button class="i" id="reload" title="Reload">&#8635;</button>
+  <input id="url" spellcheck="false" placeholder="Search or enter address"><div id="spacer"></div>
+  <div class="win"><button id="min" title="Minimize">&#8212;</button><button id="max" title="Maximize">&#9744;</button><button id="close" class="close" title="Close">&#10005;</button></div>
+</div>
+<script>
+// Diagnostics for benchmark runs: uncaught errors end up in BOSON_BENCH_DIR/app.log.
+const reportError = (text) => import('/wails/runtime.js').then((rt) => rt.Call.ByName('main.BenchService.Log', String(text))).catch(() => {});
+window.addEventListener('error', (e) => reportError('error: ' + e.message));
+window.addEventListener('unhandledrejection', (e) => reportError('unhandled rejection: ' + ((e.reason && e.reason.message) || e.reason)));
+</script>
+<script type="module">
+import { Call, Events } from '/wails/runtime.js';
+const B = 'main.BrowserService.';
+const call = (m, ...a) => Call.ByName(B + m, ...a);
+const $ = (id) => document.getElementById(id);
+function render(s) {
+  const tabs = $('tabs'); tabs.textContent = '';
+  for (const t of s.tabs) {
+    const el = document.createElement('div'); el.className = 'tab' + (t.id === s.active ? ' active' : '');
+    el.innerHTML = '<span class="s"></span><span class="t"></span><button class="x" title="Close tab">&#10005;</button>';
+    el.querySelector('.s').textContent = t.sleeping ? 'zz' : ''; el.querySelector('.t').textContent = t.title || t.url || 'New tab'; el.title = t.url;
+    el.addEventListener('click', (e) => { if (e.target.classList.contains('x')) call('CloseTab', t.id); else call('ActivateTab', t.id); });
+    tabs.appendChild(el);
+  }
+  const a = s.tabs.find((t) => t.id === s.active);
+  if (a && document.activeElement !== $('url')) $('url').value = a.url || '';
+}
+Events.On('tabs:updated', (e) => render(e.data));
+call('GetState').then(render);
+$('new').onclick = () => call('NewTab', '');
+$('back').onclick = () => call('Back'); $('fwd').onclick = () => call('Forward'); $('reload').onclick = () => call('Reload');
+$('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { call('Navigate', $('url').value); $('url').blur(); } });
+$('min').onclick = () => call('Minimise'); $('max').onclick = () => call('ToggleMaximise'); $('close').onclick = () => call('Close');
+
+// Benchmark adapter for the shared bench/shared/bench_shell.js (copied next to this file by build.ps1).
+const BB = 'main.BenchService.';
+window.__benchHost = {
+  painted: () => Call.ByName(BB + 'Painted'),
+  ping: (seq) => Call.ByName(BB + 'Ping', seq),
+  echo: (text) => Call.ByName(BB + 'Echo', text),
+  emitBurst: (n) => Call.ByName(BB + 'EmitBurst', n),
+  onTick: (f) => Events.On('bench:tick', f),
+  onRunIpc: (f) => Events.On('bench:run-ipc', f),
+  report: (json) => Call.ByName(BB + 'Report', json),
+};
+import('/bench_shell.js').catch((e) => reportError('bench_shell.js: ' + e.message));
+</script></body></html>

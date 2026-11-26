@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <objbase.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -28,6 +29,7 @@
 #include <boson/ipc/ts_generator.hpp>
 
 #include "bench_core.hpp"
+#include "scenario.hpp"
 
 namespace pt {
 
@@ -827,6 +829,164 @@ void test_webview_roundtrip() {
     std::filesystem::remove_all(user_data, ec);
 }
 
+// ---- boson_bench --scenario browser -------------------------------------------------------------------------
+
+void test_scenario_core() {
+    step("bench scenario: protocol parsing, memory reduction, report rendering");
+    namespace scn = boson::bench::scenario;
+    const auto cp = scn::parse_checkpoint("12 tabs_5_slept\r\n");
+    PT_CHECK(cp.has_value() && cp->first == 12 && cp->second == "tabs_5_slept");
+    PT_CHECK(!scn::parse_checkpoint("tabs_1").has_value());
+    PT_CHECK(!scn::parse_checkpoint("x1 tabs_1").has_value());
+    PT_CHECK(!scn::parse_checkpoint("3 ").has_value());
+    const auto hwnds = scn::parse_hwnds("1311234 655432\n");
+    PT_CHECK(hwnds.has_value() && reinterpret_cast<std::uintptr_t>(hwnds->first) == 1311234 && reinterpret_cast<std::uintptr_t>(hwnds->second) == 655432);
+    PT_CHECK(!scn::parse_hwnds("1311234").has_value());
+    PT_CHECK(!scn::parse_hwnds("0 5").has_value());
+
+    constexpr std::uint64_t kMb = 1024ull * 1024ull;
+    std::vector<boson::bench::ProcessMetrics> procs{
+        {.pid = 10, .parent_pid = 1, .name = "host.exe", .alive = true, .private_working_set = 3 * kMb, .working_set = 20 * kMb, .commit = 5 * kMb},
+        {.pid = 11, .parent_pid = 10, .name = "msedgewebview2.exe", .alive = true, .private_working_set = 30 * kMb, .working_set = 100 * kMb, .commit = 40 * kMb},
+        {.pid = 12, .parent_pid = 11, .name = "msedgewebview2.exe", .alive = true, .private_working_set = 10 * kMb, .working_set = 60 * kMb, .commit = 12 * kMb},
+        {.pid = 13, .parent_pid = 11, .name = "gone.exe", .alive = false, .private_working_set = 99 * kMb, .working_set = 99 * kMb, .commit = 99 * kMb},
+    };
+    const scn::CheckpointMemory m = scn::memory_of("tabs_1", procs, 10);
+    PT_CHECK(m.processes == 3);
+    PT_CHECK(m.host_commit_mb == 5.0 && m.host_private_ws_mb == 3.0);
+    PT_CHECK(m.webview_ws_mb == 160.0 && m.webview_private_ws_mb == 40.0);
+    PT_CHECK(m.tree_private_ws_mb == 43.0 && m.tree_commit_mb == 57.0);
+    scn::CheckpointMemory low = m;
+    low.webview_ws_mb = 100.0;
+    scn::CheckpointMemory high = m;
+    high.webview_ws_mb = 300.0;
+    const std::vector<scn::CheckpointMemory> three{high, m, low};
+    const scn::CheckpointMemory med = scn::median_memory(three);
+    PT_CHECK(med.name == "tabs_1" && med.webview_ws_mb == 160.0 && med.processes == 3);
+
+    const RECT frame{100, 100, 900, 700};
+    const RECT content{100, 140, 900, 700};
+    const scn::RectOffset off = scn::offset_between(frame, content);
+    PT_CHECK(off.top == 40 && off.left == 0 && off.right == 0 && off.bottom == 0);
+    PT_CHECK(scn::aligned(RECT{150, 100, 950, 700}, RECT{150, 140, 950, 700}, off));
+    PT_CHECK(scn::aligned(RECT{150, 100, 950, 700}, RECT{151, 140, 950, 701}, off)); // 1 px rounding tolerated
+    PT_CHECK(!scn::aligned(RECT{150, 100, 950, 700}, RECT{100, 140, 900, 700}, off));
+
+    // An app result the way the Go side writes it (unknown keys ignored, ipc nested).
+    const std::string app_json = R"({"framework":"wails-v3","sleep_mode":"discard","extra":1,
+        "ipc":{"ok":true,"error":"","ping_sequential":{"n":1000,"mean_ms":3.9,"p50_ms":3.8,"p95_ms":5,"p99_ms":6.8,"min_ms":1,"max_ms":9},
+               "ping_concurrent":{"n":1000,"total_ms":800,"calls_per_s":1250},"echo_1mib":{"runs_ms":[170,180],"median_ms":175,"mb_per_s":5.7},
+               "emit_burst":{"n":10000,"received":10000,"total_ms":700,"events_per_s":14285,"timeout":false}},
+        "new_tab_nav_ms":[140,150],"tab_switch_ms":[50,60,-1],"wake_ms":[180],"recreate_nav_ms":[150],"recreate_visible_ms":[184],
+        "slept_at_5":4,"slept_at_10":9,"errors":["mark 7 timed out"]})";
+    scn::AppResult app;
+    PT_CHECK(!glz::read<glz::opts{.error_on_unknown_keys = false}>(app, app_json));
+    PT_CHECK(app.framework == "wails-v3" && app.ipc.has_value() && app.ipc->ok && app.ipc->emit_burst.received == 10000);
+    PT_CHECK(app.slept_at_10 == 9 && app.errors.size() == 1);
+    PT_CHECK(scn::median_vec(app.tab_switch_ms) == std::optional<double>{55.0}); // -1 (timed out) is skipped
+
+    scn::ScenarioReport a;
+    a.name = "boson";
+    a.target = "boson_browser.exe";
+    for (std::uint32_t i = 1; i <= 4; ++i) {
+        scn::ScenarioRunResult run;
+        run.run = i;
+        run.warmup = i == 1;
+        run.first_window_ms = 20.0 + i; // measured runs: 22, 23, 24
+        run.shell_paint_ms = 300.0 + i;
+        run.first_nav_ms = 250.0 + i;
+        run.checkpoints.push_back(m);
+        run.lag = scn::LagResult{.move_ms = {0.5, 0.7}, .resize_ms = {3.0}, .drag_in_sync_pct = 100.0, .drag_catchup_ms = 0.4,
+                                 .live_resize_in_sync_pct = 100.0, .live_resize_catchup_ms = 3.5, .timeouts = 0, .error = {}};
+        run.app = app;
+        a.runs.push_back(run);
+    }
+    scn::ScenarioRunResult broken;
+    broken.run = 5;
+    broken.error = "target exited";
+    a.runs.push_back(broken);
+
+    const auto rows = scn::metric_rows(a);
+    const auto first_window = std::ranges::find_if(rows, [](const scn::MetricRow& r) { return r.metric == "first window (ms)"; });
+    PT_CHECK(first_window != rows.end() && first_window->values.size() == 3); // warm-up and failed runs excluded
+    PT_CHECK(scn::format_cell(&*first_window) == "23 [22-24]");
+    const auto slept = std::ranges::find_if(rows, [](const scn::MetricRow& r) { return r.metric == scn::kSleptMetric; });
+    PT_CHECK(slept != rows.end() && scn::format_cell(&*slept) == "4 / 9");
+    PT_CHECK(scn::format_cell(nullptr) == "n/a");
+
+    const std::string md = scn::render_scenario_markdown(a);
+    PT_CHECK(contains(md, "# boson_bench --scenario browser: boson"));
+    PT_CHECK(contains(md, "| Memory tabs_1 | host private bytes (MB) | 5.0 [5.0-5.0] |"));
+    PT_CHECK(contains(md, "Run 5 failed: target exited"));
+
+    std::string json;
+    PT_CHECK(!glz::write<glz::opts{.prettify = true}>(a, json));
+    scn::ScenarioReport b;
+    PT_CHECK(!glz::read<glz::opts{.error_on_unknown_keys = false}>(b, json));
+    PT_CHECK(b.runs.size() == 5 && b.runs[1].app.has_value() && b.runs[1].lag.has_value());
+    b.name = "wails";
+    for (auto& run : b.runs) {
+        if (run.first_window_ms) *run.first_window_ms *= 2.0;
+    }
+    const std::vector<scn::ScenarioReport> both{a, b};
+    const std::string table = scn::render_scenario_comparison(both);
+    PT_CHECK(contains(table, "| Group | Metric | boson | wails | wails / boson |"));
+    PT_CHECK(contains(table, "| Startup | first window (ms) | 23 [22-24] | 46 [44-48] | 2.00x |"));
+}
+
+/// Lays its first child out below a 40 px header inside WM_SIZE, like WebViewHost does for a content WebView.
+LRESULT CALLBACK probe_wnd_proc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
+    if (msg == WM_SIZE) {
+        if (HWND child = ::GetWindow(hwnd, GW_CHILD); child != nullptr) {
+            ::SetWindowPos(child, nullptr, 0, 40, LOWORD(l), HIWORD(l) - 40, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+    return ::DefWindowProcW(hwnd, msg, w, l);
+}
+
+void test_scenario_lag_probe() {
+    step("bench scenario: window-lag probe on a child window (follows) and an unrelated one (does not)");
+    namespace scn = boson::bench::scenario;
+    WNDCLASSEXW wc{};
+    wc.cbSize = sizeof(wc);
+    wc.lpfnWndProc = probe_wnd_proc;
+    wc.hInstance = ::GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"BosonBenchProbeTest";
+    ::RegisterClassExW(&wc);
+    // Never shown: SetWindowPos / GetWindowRect work on hidden windows, so nothing flashes on screen.
+    HWND frame = ::CreateWindowExW(0, wc.lpszClassName, L"frame", WS_OVERLAPPEDWINDOW, 100, 100, 640, 480, nullptr, nullptr, wc.hInstance, nullptr);
+    HWND child = ::CreateWindowExW(0, wc.lpszClassName, L"child", WS_CHILD | WS_VISIBLE, 0, 40, 600, 380, frame, nullptr, wc.hInstance, nullptr);
+    HWND other = ::CreateWindowExW(WS_EX_TOOLWINDOW, wc.lpszClassName, L"other", WS_POPUP, 120, 160, 600, 380, nullptr, nullptr, wc.hInstance, nullptr);
+    PT_CHECK(frame != nullptr && child != nullptr && other != nullptr);
+    RECT client{};
+    ::GetClientRect(frame, &client);
+    ::SendMessageW(frame, WM_SIZE, SIZE_RESTORED, MAKELPARAM(client.right, client.bottom)); // initial layout
+
+    const scn::LagProbeConfig cfg{.moves = 4, .move_px = 20, .resizes = 2, .resize_px = 30, .live_steps = 10, .live_move_px = 3,
+                                  .live_resize_px = 2, .frame_ms = 5.0, .gap_ms = 5.0, .timeout_ms = 100.0};
+    RECT before{};
+    ::GetWindowRect(frame, &before);
+    const scn::LagResult follows = scn::probe_window_lag(frame, child, cfg);
+    PT_CHECK(follows.error.empty());
+    PT_CHECK(follows.move_ms.size() == 4 && follows.timeouts == 0);
+    PT_CHECK(follows.drag_in_sync_pct == 100.0);
+    PT_CHECK(std::ranges::all_of(follows.move_ms, [](double v) { return v < 50.0; }));
+    PT_CHECK(follows.resize_ms.size() == 2 && follows.live_resize_in_sync_pct == 100.0);
+    RECT after{};
+    ::GetWindowRect(frame, &after);
+    PT_CHECK(after.left == before.left && after.top == before.top && after.right == before.right && after.bottom == before.bottom);
+
+    const scn::LagResult stuck = scn::probe_window_lag(frame, other, cfg);
+    PT_CHECK(stuck.move_ms.empty() && stuck.resize_ms.empty() && stuck.timeouts == 4 + 2 + 2);
+    PT_CHECK(stuck.drag_in_sync_pct < 20.0);
+    PT_CHECK(stuck.drag_catchup_ms == cfg.timeout_ms);
+
+    PT_CHECK(!scn::probe_window_lag(nullptr, other, cfg).error.empty());
+    ::DestroyWindow(other);
+    ::DestroyWindow(frame);
+    ::UnregisterClassW(wc.lpszClassName, wc.hInstance);
+}
+
 } // namespace
 
 int main() {
@@ -840,6 +1000,8 @@ int main() {
     test_method_params();
     test_bench_tree_and_stats();
     test_bench_live_sampling();
+    test_scenario_core();
+    test_scenario_lag_probe();
     test_webview_roundtrip();
 
     std::cout << (g_checks - g_failures) << "/" << g_checks << " porting checks passed\n";

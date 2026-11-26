@@ -116,7 +116,12 @@ private:
     std::optional<SleepPolicy> m_sleep_policy;
     UiTimer m_sleep_timer;
     std::vector<std::uint64_t> m_sleep_exempt;
-    std::vector<std::uint64_t> m_sleeping;
+    struct SleepingEntry {
+        std::uint64_t id = 0;
+        std::chrono::steady_clock::time_point hidden_since{}; ///< WebView::hidden_since() when it was put to sleep
+    };
+    void forget_sleeping(std::uint64_t id) noexcept;
+    std::vector<SleepingEntry> m_sleeping;
     std::function<void(WebView&)> m_on_slept;
 };
 
