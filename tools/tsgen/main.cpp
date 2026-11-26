@@ -33,6 +33,7 @@
 #include <boson/ipc/controllers/gpu_controller.hpp>
 #include <boson/ipc/controllers/db_controller.hpp>
 #include <boson/ipc/controllers/http_controller.hpp>
+#include <boson/ipc/controllers/guest_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../../examples/demo/app_controller.hpp"

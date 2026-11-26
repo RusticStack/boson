@@ -535,6 +535,276 @@ export interface HttpHostsResponse {
     hosts: Array<string>;
 }
 
+export interface GuestInfo {
+    id: number;
+    opener_id: number;
+    url: string;
+    title: string;
+    ready: boolean;
+    loading: boolean;
+    crashed: boolean;
+    can_go_back: boolean;
+    can_go_forward: boolean;
+    audible: boolean;
+    muted: boolean;
+    visible: boolean;
+    zoom: number;
+    partition: string;
+}
+
+export interface GuestCreateRequest {
+    src: string;
+    partition: string;
+    preload: string;
+    preload_script: string;
+    allowpopups: boolean;
+    popups: string;
+    useragent: string;
+    zoom: number;
+    permissions: string;
+    basic_auth: string;
+    certificate_errors: string;
+    client_certificates: string;
+    devtools: boolean;
+    context_menus: boolean;
+    console_messages: boolean;
+    forward_accelerators: boolean;
+    hide_download_ui: boolean;
+    reserved_accelerators: Array<string>;
+}
+
+export interface GuestIdRequest {
+    id: number;
+}
+
+export interface OkResponse {
+    ok: boolean;
+}
+
+export interface GuestList {
+    guests: Array<GuestInfo>;
+}
+
+export interface CssRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface GuestLayoutItem {
+    id: number;
+    rect: CssRect;
+    clip?: CssRect | null;
+    visible: boolean;
+    z: number;
+}
+
+export interface GuestLayoutRequest {
+    items: Array<GuestLayoutItem>;
+    device_pixel_ratio: number;
+}
+
+export interface GuestFocusRequest {
+    id: number;
+    direction: string;
+}
+
+export interface GuestUrlRequest {
+    id: number;
+    url: string;
+}
+
+export interface GuestScriptResult {
+    result: unknown;
+}
+
+export interface GuestScriptRequest {
+    id: number;
+    code: string;
+    user_gesture: boolean;
+}
+
+export interface GuestCssResult {
+    key: string;
+}
+
+export interface GuestCssRequest {
+    id: number;
+    css: string;
+}
+
+export interface GuestCssKeyRequest {
+    id: number;
+    key: string;
+}
+
+export interface GuestSendRequest {
+    id: number;
+    channel: string;
+    args: unknown;
+}
+
+export interface GuestFindResult {
+    request_id: number;
+}
+
+export interface GuestFindRequest {
+    id: number;
+    text: string;
+    forward: boolean;
+    match_case: boolean;
+    find_next: boolean;
+}
+
+export interface GuestStopFindRequest {
+    id: number;
+    action: string;
+}
+
+export interface GuestZoomRequest {
+    id: number;
+    factor: number;
+}
+
+export interface GuestMuteRequest {
+    id: number;
+    muted: boolean;
+}
+
+export interface GuestUserAgentRequest {
+    id: number;
+    user_agent: string;
+}
+
+export interface GuestOptionsRequest {
+    id: number;
+    console_messages?: boolean | null;
+    forward_accelerators?: boolean | null;
+    popups?: string | null;
+    permissions?: string | null;
+    basic_auth?: string | null;
+    certificate_errors?: string | null;
+    client_certificates?: string | null;
+}
+
+export interface GuestCaptureResult {
+    mime_type: string;
+    data: string;
+    size: number;
+    transferred: boolean;
+}
+
+export interface GuestCaptureRequest {
+    id: number;
+    format: string;
+    channel: string;
+}
+
+export interface PrintResult {
+    ok: boolean;
+    status: string;
+}
+
+export interface PrintOptions {
+    orientation?: string | null;
+    scale_factor?: number | null;
+    page_width?: number | null;
+    page_height?: number | null;
+    margin_top?: number | null;
+    margin_bottom?: number | null;
+    margin_left?: number | null;
+    margin_right?: number | null;
+    print_backgrounds?: boolean | null;
+    selection_only?: boolean | null;
+    header_and_footer?: boolean | null;
+    header_title?: string | null;
+    footer_uri?: string | null;
+    page_ranges?: string | null;
+    pages_per_side?: number | null;
+    copies?: number | null;
+    collation?: string | null;
+    color_mode?: string | null;
+    duplex?: string | null;
+    printer_name?: string | null;
+}
+
+export interface GuestPrintRequest {
+    id: number;
+    options: PrintOptions;
+}
+
+export interface GuestPdfResult {
+    ok: boolean;
+    path: string;
+    data: string;
+    size: number;
+    transferred: boolean;
+}
+
+export interface GuestPdfRequest {
+    id: number;
+    path: string;
+    channel: string;
+    options: PrintOptions;
+}
+
+export interface GuestPermissionResponse {
+    id: number;
+    request_id: number;
+    allow: boolean;
+}
+
+export interface GuestLoginResponse {
+    id: number;
+    request_id: number;
+    username: string;
+    password: string;
+    cancel: boolean;
+}
+
+export interface GuestCertificateResponse {
+    id: number;
+    request_id: number;
+    allow: boolean;
+}
+
+export interface GuestClientCertificateResponse {
+    id: number;
+    request_id: number;
+    index: number;
+    cancel: boolean;
+}
+
+export interface GuestDownloadRequest {
+    id: number;
+    download_id: number;
+    action: string;
+}
+
+export interface GuestCdpResult {
+    result: unknown;
+}
+
+export interface GuestCdpRequest {
+    id: number;
+    method: string;
+    params: unknown;
+    session_id: string;
+}
+
+export interface GuestCdpSubscribeRequest {
+    id: number;
+    events: Array<string>;
+    subscribe: boolean;
+}
+
+export interface GuestCdpEndpoint {
+    enabled: boolean;
+    http: string;
+    websocket: string;
+}
+
 export interface LogWriteRequest {
     level: string;
     category: string;
@@ -573,7 +843,7 @@ export interface MenuBarInfo {
     entries: Array<MenuBarEntryInfo>;
 }
 
-export interface CssRect {
+export interface ipc_CssRect {
     x: number;
     y: number;
     width: number;
@@ -581,7 +851,7 @@ export interface CssRect {
 }
 
 export interface MenuAnchorsRequest {
-    rects: Array<CssRect>;
+    rects: Array<ipc_CssRect>;
 }
 
 export interface MenuPopupResult {
@@ -593,7 +863,7 @@ export interface MenuPopupResult {
 export interface PopupApplicationMenuRequest {
     id: string;
     index: number;
-    rect?: CssRect | null;
+    rect?: ipc_CssRect | null;
 }
 
 export interface ContextMenuRequest {
@@ -1398,40 +1668,8 @@ export interface UpdateLastResultResponse {
     finished_at: string;
 }
 
-export interface OkResponse {
-    ok: boolean;
-}
-
 export interface PrintUiRequest {
     kind: string;
-}
-
-export interface PrintResult {
-    ok: boolean;
-    status: string;
-}
-
-export interface PrintOptions {
-    orientation?: string | null;
-    scale_factor?: number | null;
-    page_width?: number | null;
-    page_height?: number | null;
-    margin_top?: number | null;
-    margin_bottom?: number | null;
-    margin_left?: number | null;
-    margin_right?: number | null;
-    print_backgrounds?: boolean | null;
-    selection_only?: boolean | null;
-    header_and_footer?: boolean | null;
-    header_title?: string | null;
-    footer_uri?: string | null;
-    page_ranges?: string | null;
-    pages_per_side?: number | null;
-    copies?: number | null;
-    collation?: string | null;
-    color_mode?: string | null;
-    duplex?: string | null;
-    printer_name?: string | null;
 }
 
 export interface PdfResult {
@@ -1571,6 +1809,21 @@ export interface DrmProbeRequest {
     create_media_keys?: boolean | null;
     check_hdcp?: boolean | null;
     timeout_ms?: number | null;
+}
+
+export interface CdpCommandResult {
+    result: unknown;
+}
+
+export interface CdpCommand {
+    method: string;
+    params: unknown;
+    session_id: string;
+}
+
+export interface CdpSubscription {
+    events: Array<string>;
+    subscribe: boolean;
 }
 
 export interface WindowInfo {
@@ -1928,6 +2181,196 @@ export interface HttpDoneEvent {
     digest: string;
 }
 
+export interface GuestDidStartLoading {
+    id: number;
+    url: string;
+    is_user_initiated: boolean;
+}
+
+export interface GuestDidNavigate {
+    id: number;
+    url: string;
+    http_response_code: number;
+    in_page: boolean;
+    can_go_back: boolean;
+    can_go_forward: boolean;
+}
+
+export interface GuestDidNavigateInPage {
+    id: number;
+    url: string;
+    is_main_frame: boolean;
+}
+
+export interface GuestDomReady {
+    id: number;
+}
+
+export interface GuestDidFinishLoad {
+    id: number;
+    url: string;
+}
+
+export interface GuestDidFailLoad {
+    id: number;
+    url: string;
+    error_code: number;
+    error_description: string;
+    http_response_code: number;
+}
+
+export interface GuestTitleUpdated {
+    id: number;
+    title: string;
+}
+
+export interface GuestFaviconUpdated {
+    id: number;
+    favicons: Array<string>;
+}
+
+export interface GuestNewWindow {
+    id: number;
+    url: string;
+    disposition: string;
+    new_guest_id: number;
+    is_user_initiated: boolean;
+}
+
+export interface GuestConsoleMessage {
+    id: number;
+    level: number;
+    message: string;
+    line: number;
+    source_id: string;
+}
+
+export interface GuestIpcMessage {
+    id: number;
+    channel: string;
+    args: unknown;
+}
+
+export interface GuestCrashed {
+    id: number;
+    kind: string;
+    reason: number;
+    exit_code: number;
+}
+
+export interface GuestClose {
+    id: number;
+}
+
+export interface GuestAudioState {
+    id: number;
+    audible: boolean;
+    muted: boolean;
+}
+
+export interface GuestDownload {
+    id: number;
+    phase: string;
+    download_id: number;
+    url: string;
+    mime_type: string;
+    path: string;
+    total_bytes: number;
+    received_bytes: number;
+    state: string;
+    interrupt_reason: string;
+    paused: boolean;
+    can_resume: boolean;
+}
+
+export interface GuestPermissionRequest {
+    id: number;
+    request_id: number;
+    permission: string;
+    origin: string;
+    is_user_initiated: boolean;
+}
+
+export interface GuestLoginRequest {
+    id: number;
+    request_id: number;
+    url: string;
+    challenge: string;
+}
+
+export interface GuestCertificateError {
+    id: number;
+    request_id: number;
+    url: string;
+    error_code: number;
+    subject: string;
+    issuer: string;
+    action: string;
+}
+
+export interface GuestClientCertificateInfo {
+    subject: string;
+    issuer: string;
+    display_name: string;
+}
+
+export interface GuestSelectClientCertificate {
+    id: number;
+    request_id: number;
+    host: string;
+    port: number;
+    certificates: Array<GuestClientCertificateInfo>;
+}
+
+export interface GuestFocusOut {
+    id: number;
+    direction: string;
+}
+
+export interface GuestFocus {
+    id: number;
+    focused: boolean;
+}
+
+export interface GuestAccelerator {
+    id: number;
+    key: string;
+    code: string;
+    key_code: number;
+    ctrl: boolean;
+    alt: boolean;
+    shift: boolean;
+    meta: boolean;
+    repeat: boolean;
+    reserved: boolean;
+}
+
+export interface GuestFoundInPage {
+    id: number;
+    request_id: number;
+    matches: number;
+    active_match_ordinal: number;
+    final_update: boolean;
+}
+
+export interface GuestCdpEvent {
+    id: number;
+    method: string;
+    params: unknown;
+    session_id: string;
+}
+
+export interface GuestCreated {
+    id: number;
+    opener_id: number;
+    url: string;
+    reason: string;
+}
+
+export interface GuestDestroyed {
+    id: number;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -2016,6 +2459,41 @@ export interface BosonApi {
     "Http.download": (params: HttpDownloadRequest) => Promise<HttpDownloadStarted>;
     "Http.cancel": (params: HttpIdRequest) => Promise<HttpBoolResponse>;
     "Http.allowed_hosts": () => Promise<HttpHostsResponse>;
+    "Guest.create": (params: GuestCreateRequest) => Promise<GuestInfo>;
+    "Guest.adopt": (params: GuestIdRequest) => Promise<GuestInfo>;
+    "Guest.destroy": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.destroy_all": () => Promise<OkResponse>;
+    "Guest.list": () => Promise<GuestList>;
+    "Guest.get_info": (params: GuestIdRequest) => Promise<GuestInfo>;
+    "Guest.set_layout": (params: GuestLayoutRequest) => Promise<OkResponse>;
+    "Guest.focus": (params: GuestFocusRequest) => Promise<OkResponse>;
+    "Guest.load_url": (params: GuestUrlRequest) => Promise<OkResponse>;
+    "Guest.go_back": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.go_forward": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.reload": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.stop": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.execute_javascript": (params: GuestScriptRequest) => Promise<GuestScriptResult>;
+    "Guest.insert_css": (params: GuestCssRequest) => Promise<GuestCssResult>;
+    "Guest.remove_inserted_css": (params: GuestCssKeyRequest) => Promise<OkResponse>;
+    "Guest.send": (params: GuestSendRequest) => Promise<OkResponse>;
+    "Guest.find_in_page": (params: GuestFindRequest) => Promise<GuestFindResult>;
+    "Guest.stop_find_in_page": (params: GuestStopFindRequest) => Promise<OkResponse>;
+    "Guest.set_zoom_factor": (params: GuestZoomRequest) => Promise<OkResponse>;
+    "Guest.set_audio_muted": (params: GuestMuteRequest) => Promise<OkResponse>;
+    "Guest.set_user_agent": (params: GuestUserAgentRequest) => Promise<OkResponse>;
+    "Guest.open_devtools": (params: GuestIdRequest) => Promise<OkResponse>;
+    "Guest.set_options": (params: GuestOptionsRequest) => Promise<OkResponse>;
+    "Guest.capture_page": (params: GuestCaptureRequest) => Promise<GuestCaptureResult>;
+    "Guest.print": (params: GuestPrintRequest) => Promise<PrintResult>;
+    "Guest.print_to_pdf": (params: GuestPdfRequest) => Promise<GuestPdfResult>;
+    "Guest.respond_permission": (params: GuestPermissionResponse) => Promise<OkResponse>;
+    "Guest.respond_login": (params: GuestLoginResponse) => Promise<OkResponse>;
+    "Guest.respond_certificate": (params: GuestCertificateResponse) => Promise<OkResponse>;
+    "Guest.respond_client_certificate": (params: GuestClientCertificateResponse) => Promise<OkResponse>;
+    "Guest.download": (params: GuestDownloadRequest) => Promise<OkResponse>;
+    "Guest.cdp_send": (params: GuestCdpRequest) => Promise<GuestCdpResult>;
+    "Guest.cdp_subscribe": (params: GuestCdpSubscribeRequest) => Promise<OkResponse>;
+    "Guest.cdp_endpoint": () => Promise<GuestCdpEndpoint>;
     "Log.write": (params: LogWriteRequest) => Promise<void>;
     "Menu.set_application_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
     "Menu.clear_application_menu": () => Promise<void>;
@@ -2150,6 +2628,8 @@ export interface BosonApi {
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
     "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
+    "WebView.cdp_send": (params: CdpCommand) => Promise<CdpCommandResult>;
+    "WebView.cdp_subscribe": (params: CdpSubscription) => Promise<OkResponse>;
     "Window.create": (params: WindowCreateRequest) => Promise<WindowInfo>;
     "Window.list": () => Promise<WindowListResponse>;
     "Window.get": (params: WindowLabelRequest) => Promise<WindowInfo>;
@@ -2246,4 +2726,32 @@ export interface BosonEvents {
     "terminal:cwd": TerminalCwdEvent;
     "http:progress": HttpProgressEvent;
     "http:done": HttpDoneEvent;
+    "guest:did-start-loading": GuestDidStartLoading;
+    "guest:did-navigate": GuestDidNavigate;
+    "guest:did-navigate-in-page": GuestDidNavigateInPage;
+    "guest:dom-ready": GuestDomReady;
+    "guest:did-finish-load": GuestDidFinishLoad;
+    "guest:did-fail-load": GuestDidFailLoad;
+    "guest:page-title-updated": GuestTitleUpdated;
+    "guest:page-favicon-updated": GuestFaviconUpdated;
+    "guest:new-window": GuestNewWindow;
+    "guest:console-message": GuestConsoleMessage;
+    "guest:ipc-message": GuestIpcMessage;
+    "guest:crashed": GuestCrashed;
+    "guest:close": GuestClose;
+    "guest:audio-state": GuestAudioState;
+    "guest:download-started": GuestDownload;
+    "guest:download-updated": GuestDownload;
+    "guest:download-done": GuestDownload;
+    "guest:permission-request": GuestPermissionRequest;
+    "guest:login": GuestLoginRequest;
+    "guest:certificate-error": GuestCertificateError;
+    "guest:select-client-certificate": GuestSelectClientCertificate;
+    "guest:focus-out": GuestFocusOut;
+    "guest:focus": GuestFocus;
+    "guest:accelerator": GuestAccelerator;
+    "guest:found-in-page": GuestFoundInPage;
+    "guest:cdp-event": GuestCdpEvent;
+    "guest:created": GuestCreated;
+    "guest:destroyed": GuestDestroyed;
 }
