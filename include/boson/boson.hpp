@@ -17,6 +17,9 @@
 #include <boson/exec/ui_marshal.hpp>
 
 #include <boson/ipc/bridge.hpp>
+#include <boson/ipc/controllers/credential_controller.hpp>
+#include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/safe_storage_controller.hpp>
 #include <boson/ipc/export.hpp>
 #include <boson/ipc/protocol_types.hpp>
 #include <boson/ipc/router.hpp>
@@ -27,5 +30,14 @@
 #include <boson/native/notification.hpp>
 
 #include <boson/app/lifecycle.hpp>
+
+#include <boson/security/capabilities.hpp>
+#include <boson/security/common.hpp>
+#include <boson/security/credential_store.hpp>
+#include <boson/security/fs_scope.hpp>
+#include <boson/security/origin.hpp>
+#include <boson/security/safe_storage.hpp>
+#include <boson/security/scoped_fs.hpp>
+#include <boson/security/web_security.hpp>
 
 #include <boson/assets/asset_registry.hpp>

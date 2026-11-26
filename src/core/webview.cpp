@@ -120,6 +120,7 @@ bool WebView::initialize(
 
     m_parent = parent;
     m_protocol.set_lookup(std::move(asset_lookup));
+    m_protocol.set_extra_headers(m_config.asset_response_headers);
     if (on_message) {
         m_on_message = std::move(on_message);
     }
