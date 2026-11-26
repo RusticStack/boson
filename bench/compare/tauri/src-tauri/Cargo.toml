@@ -1,0 +1,25 @@
+[package]
+name = "tauri-compare"
+version = "1.0.0"
+description = "Tauri v2 reference app of the Boson comparison suite"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+
+[features]
+# What `tauri build` enables for a production bundle: assets come from the binary, not from a dev server.
+custom-protocol = ["tauri/custom-protocol"]
+
+# The size/speed profile recommended by the Tauri documentation (https://v2.tauri.app/concept/size/).
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

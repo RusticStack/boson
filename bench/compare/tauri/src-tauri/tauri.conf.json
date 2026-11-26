@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "tauri-compare",
+  "version": "1.0.0",
+  "identifier": "dev.boson.compare.tauri",
+  "build": {
+    "frontendDist": "../frontend"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Comparison app",
+        "width": 900,
+        "height": 640,
+        "url": "index.html",
+        "backgroundColor": "#1b1b1f"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

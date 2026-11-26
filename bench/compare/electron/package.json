@@ -1,0 +1,10 @@
+{
+  "name": "electron-compare",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Electron reference app of the Boson comparison suite",
+  "main": "main.js",
+  "devDependencies": {
+    "@electron/packager": "20.3.0"
+  }
+}

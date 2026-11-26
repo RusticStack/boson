@@ -448,6 +448,42 @@ add_executable(boson_kitchen_sink WIN32
 )
 target_link_libraries(boson_kitchen_sink PRIVATE boson_core)
 
+# Comparison suite reference app (bench/compare): the Boson counterpart of the Electron, Tauri v2 and Wails v3 apps.
+# The shared frontend is embedded as byte arrays (cmake/EmbedFile.cmake; main.cpp uses #embed when BOSON_USE_CPP26_EMBED is set).
+set(BOSON_COMPARE_GENERATED "${CMAKE_BINARY_DIR}/generated/compare")
+set(BOSON_COMPARE_HEADERS "")
+foreach(_entry IN ITEMS
+        "bench/compare/shared/index.html|compare_index_html|kCompareIndexHtml"
+        "bench/compare/shared/style.css|compare_style_css|kCompareStyleCss"
+        "bench/compare/shared/app.js|compare_app_js|kCompareAppJs"
+        "bench/compare/boson/adapter.js|compare_adapter_js|kCompareAdapterJs")
+    string(REPLACE "|" ";" _parts "${_entry}")
+    list(GET _parts 0 _in)
+    list(GET _parts 1 _stem)
+    list(GET _parts 2 _name)
+    add_custom_command(
+        OUTPUT "${BOSON_COMPARE_GENERATED}/${_stem}.hpp"
+        COMMAND "${CMAKE_COMMAND}" "-DIN=${CMAKE_CURRENT_SOURCE_DIR}/${_in}" "-DOUT=${BOSON_COMPARE_GENERATED}/${_stem}.hpp" "-DNAME=${_name}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${_in}" cmake/EmbedFile.cmake
+        VERBATIM)
+    list(APPEND BOSON_COMPARE_HEADERS "${BOSON_COMPARE_GENERATED}/${_stem}.hpp")
+endforeach()
+add_executable(boson_compare_app WIN32
+    bench/compare/boson/main.cpp
+    ${BOSON_COMPARE_HEADERS}
+)
+target_link_libraries(boson_compare_app PRIVATE boson_core)
+target_include_directories(boson_compare_app PRIVATE "${BOSON_COMPARE_GENERATED}"
+    bench/compare/shared bench/compare/boson)
+# Harness smoke test: bench/run_compare.ps1 drives the Boson reference app through startup, idle, two windows, every IPC
+# test and shutdown (1 s idle window instead of 30 s) and fails on any failed run. Needs Windows PowerShell and WebView2.
+add_test(NAME boson_compare_harness_smoke
+    COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/bench/run_compare.ps1"
+        -SkipBuild -SkipSizes -Frameworks boson -Runs 1 -Warmup 0 -IdleSeconds 1 -SettleSeconds 1 -CooldownSeconds 0
+        -BuildDir "$<TARGET_FILE_DIR:boson_compare_app>" -Out "${CMAKE_BINARY_DIR}/bench-results/compare-smoke" -FailOnError)
+set_tests_properties(boson_compare_harness_smoke PROPERTIES LABELS integration TIMEOUT 240)
+
 # Process-tree benchmark harness (any framework's executable).
 add_executable(boson_bench
     tools/bench/main.cpp
