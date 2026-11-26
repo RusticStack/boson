@@ -878,14 +878,17 @@ Not verified / limits:
 - Windows 10, ARM64, composition hosting and multi-window (`WindowManager`) quit paths were not measured; the code path is
   the same `Environment::shutdown`.
 - The environment-first ordering and browser-switch ideas were evaluated only on boson_bench_app.
-Findings of the optimization pass, one self-contained section per area. Raw numbers and the harnesses are described in
-[BENCHMARKS.md](BENCHMARKS.md).
+
 ## Comparative benchmark suite
+
 **Area**: `bench/compare/` + `bench/run_compare.ps1` (Boson vs Electron vs Tauri v2 vs Wails v3). This section is the baseline other
 areas are measured against; no Boson code was changed for it (the only product-tree change is the `boson_compare_app` target and the
 `boson_compare_harness_smoke` test in CMakeLists.txt).
+
 ### Baseline (2026-11-26, Windows 11, i7-13700KF, shared and busy machine, 5 runs + 1 warm-up, medians)
+
 | Metric | Boson | Electron 45.5 | Tauri 2.12 | Wails 3.1 | Best |
+|---|---:|---:|---:|---:|---|
 | First visible window (ms) | 29 | 107 | 29 | 381 | Boson = Tauri |
 | First paint (ms) | 312 | **202** | 373 | 396 | Electron |
 | Idle CPU, 30 s (% of one core) | **0.10** | 1.77 | 0.21 | 1.67 | Boson |
@@ -899,7 +902,9 @@ areas are measured against; no Boson code was changed for it (the only product-t
 | Event burst (events/s) | 107k | **167k** | 24k | 14k | Electron |
 | Shutdown, WM_CLOSE -> process exit (ms) | 308 | 80 | 60 | **57** | Wails |
 | Executable / ZIP (KB) | **813 / 318** | 250 MB exe, 375 MB folder / 158 MB | 3,228 / 1,316 | 10,534 / 4,271 | Boson |
+
 ### Where the other areas have room (found by the comparison, not fixed here)
+
 1. **Bulk IPC payloads**: Boson is 4x (64 KiB), 9x (1 MiB) behind Electron and about 1.4x ahead of Tauri; the 10k-item array and event burst
    are 1.7x / 1.6x behind Electron. Everything that crosses `postMessage` is a JSON string that WebView2 copies between the browser and
    renderer processes and the page parses. Candidates: `ICoreWebView2SharedBuffer` / `PostSharedBufferToScript` for payloads above a
@@ -912,7 +917,9 @@ areas are measured against; no Boson code was changed for it (the only product-t
    normal 300 ms case is unknown.
 4. **Idle**: already the lowest of the four; the spread inside a framework (0.05-2.4 %) is larger than the gap to Tauri. Do not trade the
    zero-idle-wakeup design for it.
+
 ### Notes for whoever re-runs this
+
 - Run it on a machine with nothing else running (see the noise row in the results); `system_busy_pct` in results.json tells how noisy a run was.
 - Compare against the committed baseline `bench/compare/results/2026-11-26/results.json` (every run, every metric); `-Frameworks boson`
   re-measures only Boson (compare its column with the baseline by hand), `-Runs 5` is the minimum for medians.
