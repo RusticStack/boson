@@ -10,6 +10,12 @@
 #include <string>
 #include <string_view>
 
+namespace boson::webview {
+class BasicAuthRequest;
+class ClientCertificateRequest;
+class ServerCertificateError;
+} // namespace boson::webview
+
 namespace boson::core {
 
 class WebView;
@@ -185,6 +191,10 @@ struct WebViewEventHandlers {
     std::function<void(DownloadStartingEvent&)> on_download_starting;
     /// Composition hosting only: the CSS app-region layout changed.
     std::function<void()> on_non_client_region_changed;
+    /// Security prompts (boson/webview/security_events.hpp). Unset = the runtime's default UI.
+    std::function<void(webview::BasicAuthRequest&)> on_basic_auth_requested;
+    std::function<void(webview::ClientCertificateRequest&)> on_client_certificate_requested;
+    std::function<void(webview::ServerCertificateError&)> on_server_certificate_error;
 };
 
 } // namespace boson::core

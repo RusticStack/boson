@@ -22,6 +22,15 @@
 #include <boson/ipc/router.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
+#include <boson/ipc/controllers/webview_controller.hpp>
+
+#include <boson/webview/capture.hpp>
+#include <boson/webview/cookies.hpp>
+#include <boson/webview/find.hpp>
+#include <boson/webview/print.hpp>
+#include <boson/webview/profile.hpp>
+#include <boson/webview/proxy.hpp>
+#include <boson/webview/security_events.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>

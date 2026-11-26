@@ -76,6 +76,12 @@ struct WebViewConfig {
     WebViewSettings settings;
     /// Injected with AddScriptToExecuteOnDocumentCreated before the first navigation.
     std::vector<std::wstring> scripts_on_document_created;
+    /// Named profile (ICoreWebView2ControllerOptions, own cookies/storage/cache). Empty = default profile.
+    std::wstring profile_name;
+    /// InPrivate profile: nothing is persisted to the user data folder.
+    bool in_private = false;
+    /// BCP 47 locale for JavaScript Intl / Date formatting (ICoreWebView2ControllerOptions2::ScriptLocale).
+    std::wstring script_locale;
 };
 
 /// @brief One ICoreWebView2Controller. All members must be called on the UI thread.
@@ -270,6 +276,9 @@ private:
         EventRegistrationToken download{};
         EventRegistrationToken cursor{};
         EventRegistrationToken non_client{};
+        EventRegistrationToken basic_auth{};
+        EventRegistrationToken client_certificate{};
+        EventRegistrationToken server_certificate{};
     } m_tokens;
 
     std::shared_ptr<std::atomic<bool>> m_alive;
