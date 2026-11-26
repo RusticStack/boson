@@ -160,20 +160,33 @@ int WINAPI wWinMain(
     webview_cfg.transparent_background = window.is_transparent_backdrop();
     webview_cfg.settings.non_client_region_support_enabled = true;
 
+    // Window menu on right-click / Alt+Space (also inside the WebView), Alt+F4, top-edge resizing and
+    // "theme:changed" / "titlebar:overlay" events for the HTML titlebar.
+    boson::titlebar::Titlebar titlebar(window);
+    boson::core::WebView* webview_ptr = nullptr;
     boson::core::WebView& webview = host.create(
         std::move(webview_cfg),
         boson::core::WebViewCallbacks{
             .asset_lookup = [](std::string_view path) { return boson::assets::AssetRegistry::find(path); },
+            .on_ready = [&titlebar, &webview_ptr]() {
+                if (webview_ptr != nullptr) {
+                    titlebar.attach_webview(*webview_ptr);
+                }
+            },
         });
+    webview_ptr = &webview;
 
     boson::ipc::SystemController system_controller(window, webview, marshal);
     boson::demo::AppController app_controller;
-    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController> router(
+    boson::ipc::TitlebarController titlebar_controller(window, webview, marshal, titlebar);
+    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController, boson::ipc::TitlebarController> router(
         system_controller,
-        app_controller);
+        app_controller,
+        titlebar_controller);
 
     boson::ipc::Bridge bridge(runner, marshal, router);
     bridge.attach(webview);
+    boson::ipc::connect_titlebar_events(titlebar, bridge);
 
     // ---- Backend -> frontend events ---------------------------------------------------------------------
     const auto emit_window_state = [&window, &bridge](bool focused) {

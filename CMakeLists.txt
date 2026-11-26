@@ -83,6 +83,11 @@ add_library(boson_core STATIC
     src/security/credential_store.cpp
     src/security/fs_scope.cpp
     src/security/scoped_fs.cpp
+    src/titlebar/theme.cpp
+    src/titlebar/window_chrome.cpp
+    src/titlebar/caption_accessibility.cpp
+    src/titlebar/caption_buttons.cpp
+    src/titlebar/titlebar.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -134,6 +139,7 @@ target_link_libraries(boson_core
         shcore
         windowscodecs
         crypt32
+        uiautomationcore
 )
 
 add_executable(boson_demo WIN32
@@ -235,3 +241,10 @@ add_executable(boson_security_tests
 target_link_libraries(boson_security_tests PRIVATE boson_core)
 add_test(NAME boson_security_tests COMMAND boson_security_tests)
 set_tests_properties(boson_security_tests PROPERTIES TIMEOUT 180)
+# Headless titlebar: hit testing, overlay geometry/DPI/RTL, UI Automation, theme; WebView2 part skips without a runtime.
+add_executable(boson_titlebar_tests
+    tests/test_titlebar.cpp
+)
+target_link_libraries(boson_titlebar_tests PRIVATE boson_core)
+add_test(NAME boson_titlebar_tests COMMAND boson_titlebar_tests)
+set_tests_properties(boson_titlebar_tests PROPERTIES TIMEOUT 180)

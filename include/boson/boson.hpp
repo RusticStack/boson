@@ -41,6 +41,7 @@
 #include <boson/webview/profile.hpp>
 #include <boson/webview/proxy.hpp>
 #include <boson/webview/security_events.hpp>
+#include <boson/ipc/controllers/titlebar_controller.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
@@ -64,6 +65,11 @@
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
 #include <boson/ipc/controllers/shortcut_controller.hpp>
+#include <boson/titlebar/caption_accessibility.hpp>
+#include <boson/titlebar/caption_buttons.hpp>
+#include <boson/titlebar/theme.hpp>
+#include <boson/titlebar/titlebar.hpp>
+#include <boson/titlebar/window_chrome.hpp>
 
 #include <boson/app/lifecycle.hpp>
 

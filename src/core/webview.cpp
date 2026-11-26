@@ -516,6 +516,17 @@ void WebView::raise_caption_overlay() const noexcept {
     if (m_parent == nullptr) {
         return;
     }
+    // Boson's own overlay children (caption buttons, resize grip) are tagged BosonKeepOnTop; raise them from
+    // the bottom up so their relative order is preserved, then the Snap Layouts overlay on top.
+    std::vector<HWND> keep_on_top;
+    for (HWND child = GetWindow(m_parent, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (GetPropW(child, L"BosonKeepOnTop") != nullptr) {
+            keep_on_top.push_back(child);
+        }
+    }
+    for (auto it = keep_on_top.rbegin(); it != keep_on_top.rend(); ++it) {
+        SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
     if (auto* overlay = static_cast<HWND>(GetPropW(m_parent, kCaptionOverlayProp)); overlay != nullptr) {
         SetWindowPos(overlay, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
