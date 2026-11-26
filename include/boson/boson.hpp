@@ -33,11 +33,16 @@
 #include <boson/ipc/controllers/shell_events.hpp>
 #include <boson/ipc/controllers/taskbar_controller.hpp>
 #include <boson/ipc/controllers/webview_controller.hpp>
+#include <boson/ipc/controllers/guest_controller.hpp>
 
 #include <boson/webview/capture.hpp>
+#include <boson/webview/cdp.hpp>
+#include <boson/webview/cdp_server.hpp>
 #include <boson/webview/cookies.hpp>
 #include <boson/webview/drm.hpp>
+#include <boson/webview/element.hpp>
 #include <boson/webview/find.hpp>
+#include <boson/webview/guest.hpp>
 #include <boson/webview/print.hpp>
 #include <boson/webview/profile.hpp>
 #include <boson/webview/proxy.hpp>

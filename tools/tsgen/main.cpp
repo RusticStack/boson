@@ -7,6 +7,7 @@
 #include <boson/ipc/controllers/clipboard_controller.hpp>
 #include <boson/ipc/controllers/credential_controller.hpp>
 #include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/guest_controller.hpp>
 #include <boson/ipc/controllers/log_controller.hpp>
 #include <boson/ipc/controllers/menu_controller.hpp>
 #include <boson/ipc/controllers/notification_controller.hpp>
@@ -58,7 +59,7 @@ bool write_file(const std::filesystem::path& out_path, const std::string& conten
 
 using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents, boson::ipc::DesktopEvents, boson::ipc::MenuEvents,
                                                       boson::ipc::ShellIntegrationEvents, boson::ipc::PlatformEvents,
-                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>>;
+                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>, boson::ipc::GuestEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -74,6 +75,7 @@ using AllControllers = Outputs<
     boson::ipc::ClipboardController,
     boson::ipc::CredentialController,
     boson::ipc::FsController,
+    boson::ipc::GuestController,
     boson::ipc::LogController,
     boson::ipc::MenuController,
     boson::ipc::NotificationController,

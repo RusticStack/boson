@@ -152,6 +152,13 @@ export const contextBridge = {
   },
 };
 
+/**
+ * Electron's <webview> tag maps to <boson-webview> (frontend/src/webview_element.ts): same attributes
+ * (src, partition, preload, allowpopups, useragent), methods and event names. Import that module once to
+ * register the element; this type alias keeps `Electron.WebviewTag`-typed code compiling.
+ */
+export type WebviewTag = import('../webview_element').BosonWebViewElement;
+
 /** Drop-in for `import { ipcRenderer, contextBridge } from 'electron'` via a bundler alias. */
 export const electron = { ipcRenderer, contextBridge };
 export default electron;
