@@ -59,6 +59,8 @@ add_library(boson_core STATIC
     src/core/protocol.cpp
     src/exec/task_runner.cpp
     src/ipc/bridge.cpp
+    src/ipc/sync_bridge.cpp
+    src/ipc/sync_boot.cpp
     src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
@@ -116,6 +118,7 @@ add_library(boson_core STATIC
     src/transfer/binary_transport.cpp
     src/transfer/file_drop.cpp
     src/transfer/stream_server.cpp
+    src/transfer/drag_out.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -289,6 +292,7 @@ if(BOSON_BUN_EXECUTABLE)
             frontend/src/boson.ts
             frontend/src/generated/boson-method-params.ts
             frontend/src/compat/electron.ts
+            frontend/src/dragout.ts
             frontend/src/compat/tauri.ts
             frontend/src/compat/wails.ts
         COMMENT "Bundling the compat shim self-test"
@@ -372,6 +376,15 @@ add_executable(boson_store_tests
 target_link_libraries(boson_store_tests PRIVATE boson_core)
 add_test(NAME boson_store_tests COMMAND boson_store_tests)
 set_tests_properties(boson_store_tests PROPERTIES TIMEOUT 120)
+# Synchronous IPC (SyncBridge host object, BootValues, ElectronIpc.sendSync) and native drag-out data objects.
+# Headless checks always run; the WebView2 part (latency numbers) skips without a runtime. Opens one small
+# non-activated window; never performs a real mouse drag.
+add_executable(boson_sync_tests
+    tests/test_sync.cpp
+)
+target_link_libraries(boson_sync_tests PRIVATE boson_core)
+add_test(NAME boson_sync_tests COMMAND boson_sync_tests)
+set_tests_properties(boson_sync_tests PROPERTIES TIMEOUT 240)
 # File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
 # the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
 add_executable(boson_transfer_tests

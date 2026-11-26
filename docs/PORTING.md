@@ -110,10 +110,50 @@ ipcRenderer.on('log-ack', (_event, count) => console.log(count)); // e.reply("lo
 contextBridge.exposeInMainWorld('api', { readConfig: (n: string) => ipcRenderer.invoke('read-config', n) });
 ```
 
-`ipcRenderer`: `invoke, send, sendToHost, on, once, addListener, removeListener, off, removeAllListeners,
-listenerCount, eventNames`; `sendSync` throws (the bridge is asynchronous by design). `contextBridge.exposeInMainWorld`
-defines a frozen, non-writable `window[key]` — Boson pages have one JS world, so there is no isolation boundary.
-Arguments are JSON, not structured clone.
+`ipcRenderer`: `invoke, send, sendSync, sendToHost, on, once, addListener, removeListener, off, removeAllListeners,
+listenerCount, eventNames`. `contextBridge.exposeInMainWorld` defines a frozen, non-writable `window[key]` — Boson
+pages have one JS world (WebView2 has no preload isolated world), so there is no isolation boundary: page scripts
+share the world with "preload" code and functions are passed by reference, not proxied. Arguments are JSON, not
+structured clone.
+
+#### Part 2: `sendSync`, `webUtils`, `webFrame`, `process`, `clipboard`, `startDrag`
+
+These need a `boson::ipc::SyncBridge` attached to the WebView (see [SYNC_IPC.md](SYNC_IPC.md) for the threading
+cost) and, for `startDrag`, a `DragController` in the Router:
+
+```cpp
+boson::compat::ElectronIpc ipc;                         // ElectronIpc.sendSync is sync-enabled by the class
+boson::transfer::DragOut drag(marshal, window.hwnd());
+boson::ipc::DragController drag_controller(drag, &bridge);
+boson::ipc::ClipboardController clipboard;
+boson::ipc::Router<boson::compat::ElectronIpc, boson::ipc::ClipboardController, boson::ipc::DragController /*, ...*/>
+    router(ipc, clipboard, drag_controller);
+boson::ipc::SyncBridge sync(router, {"Clipboard.*"});   // extra patterns for controllers without boson_sync_methods()
+sync.attach(webview);                                     // after the WebView is ready, and again after Environment::recreate
+
+ipc.handle_sync("get-settings-sync", [&](const boson::compat::IpcEvent&, auto) { return settings_json; }); // UI thread!
+
+boson::ipc::BootValues boot;                              // answers zero-argument sendSync with no IPC at all
+boot.set_send_sync("get-app-path", app_path_utf8);
+boot.set_process_info("1.4.0");
+webview_config.scripts_on_document_created.push_back(boot.wide_script()); // before the WebView is created
+```
+
+| Electron (renderer) | Boson shim | Native side |
+|---|---|---|
+| `ipcRenderer.sendSync(ch)` (no args) | frozen boot value `__BOSON_BOOT__.sendSync[ch]`, returned as a copy | `BootValues::set_send_sync` |
+| `ipcRenderer.sendSync(ch, ...args)` | `boson.invokeSync('ElectronIpc.sendSync', {channel, args})` | `ElectronIpc::handle_sync` (UI thread) |
+| `contextBridge.exposeInMainWorld` | frozen `window[key]` | — |
+| `webUtils.getPathForFile(file)` | `postMessageWithAdditionalObjects` + `SyncHost.file_paths`; `''` for in-memory Files | `ICoreWebView2File::get_Path` |
+| `webFrame.get/setZoomFactor`, `get/setZoomLevel` | `SyncHost.zoom_factor` / `set_zoom_factor` (level: factor = 1.2^level) | `ICoreWebView2Controller` ZoomFactor |
+| `process.platform/arch/versions/env/type` | frozen stub (`process` export, `installProcessGlobal()`); `versions.chrome/webview2/app`, no `electron`/`node` | `BootValues::set_process_info` |
+| `clipboard.readText/writeText/readHTML/writeHTML/write/clear/availableFormats/has` | `boson.invokeSync('Clipboard.*')` | `ClipboardController` (sync-enabled by pattern) |
+| `webContents.startDrag({file, files, icon})` | `startDrag(item)` from a `dragstart` handler (renderer side) | `DragController` → `transfer::DragOut` |
+
+In Electron `startDrag` is a main-process API called on `event.sender`; with Boson the renderer calls
+`startDrag(item)` (or `enableDragOut(el, getFiles)` from `frontend/src/dragout.ts`) and C++ code can call
+`DragOut::start` directly. `icon` is an image file path (no `NativeImage`). Clipboard `readImage` / `writeImage`
+are not shimmed synchronously: use `boson.call('Clipboard.read_image')`.
 
 ### tauri.ts
 
@@ -261,3 +301,10 @@ payload typing (`Create.Events` filled by the generator for typed custom events)
 the fixture produces. Under the real C++26 reflection path (`__cpp_impl_reflection`) method names come from
 identifiers rather than `glz::meta` keys, so a `CreateTab` key needs `defineBinding` there; MSVC uses the
 `glz::meta` path, which is the one tested.
+
+### Verification: Electron shim part 2 (sync IPC, drag-out)
+
+- `boson_porting_tests`: 181/181 checks; the shim self-test now runs **78** JS assertions (was 60) with a `SyncBridge`,
+  boot values, an in-memory "Clipboard" controller and a `DragController` attached. See [SYNC_IPC.md](SYNC_IPC.md) for the
+  sync-path tests (`boson_sync_tests`, 170/170), latency numbers and what was not verified (real mouse drags,
+  `getPathForFile` with disk-backed files).

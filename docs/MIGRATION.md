@@ -36,7 +36,7 @@ handler / command / bound method in C++ with `ElectronIpc::handle`, then move ho
 | Typed bindings | manual / `electron-trpc` | `tauri-specta` | generated `bindings/` | `boson_tsgen` -> `frontend/src/generated/boson-bindings.d.ts` | `wails3 generate bindings` output unchanged via the `@wailsio/runtime` alias (`Call.ByID`, `Create`, `CancellablePromise`), or `bindService` |
 | Serialization | structured clone | JSON (serde) | JSON | JSON (glaze, zero-copy `raw_json` params) | JSON |
 | Access control | `contextIsolation`, sandbox | capabilities / permissions | — | `BridgeAttachOptions::allowed_origins` (default `boson://app` + dev origin); detached WebViews never reach the Router | same |
-| Sync IPC | `sendSync` | — | — | not supported (UI never blocks) | `sendSync` throws |
+| Sync IPC | `sendSync` | — | — | `boson.invokeSync` via `ipc::SyncBridge` (handler on the UI thread) or `BootValues` | `sendSync` (boot values, then `ElectronIpc::handle_sync`) — [SYNC_IPC.md](SYNC_IPC.md) |
 
 ## Windows, webviews and app lifecycle
 
@@ -85,7 +85,7 @@ handler / command / bound method in C++ with `ElectronIpc::handle`, then move ho
 
 - **Node.js in the page or the main process.** There is no Node runtime; move that logic to C++ controllers
   or to the platform modules above. `require`, `process`, `Buffer` and npm native modules are not available.
-- **Synchronous IPC** (`sendSync`, `remote`): not supported by design.
+- **Synchronous IPC** (`sendSync`): available through `ipc::SyncBridge` / `BootValues` ([SYNC_IPC.md](SYNC_IPC.md)); `remote` is not supported.
 - **Structured clone** types over IPC (Date, Map, typed arrays, MessagePort): convert to JSON first.
 - **Multiple JS worlds** (contextIsolation): Boson pages run in one world; protect the bridge with
   `allowed_origins` and by not attaching third-party-content WebViews to a Bridge.

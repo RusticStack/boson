@@ -77,12 +77,47 @@ std::string ipc_event_name(std::string_view channel) {
     return name;
 }
 
-bool ElectronIpc::add_handler(std::string channel, std::shared_ptr<const HandlerEntry> entry) {
+bool ElectronIpc::add_to(HandlerMap& map, std::shared_mutex& mutex, std::string channel, std::shared_ptr<const HandlerEntry> entry) {
     if (channel.empty()) {
         return false;
     }
+    const std::unique_lock lock(mutex);
+    return map.try_emplace(std::move(channel), std::move(entry)).second;
+}
+
+bool ElectronIpc::add_handler(std::string channel, std::shared_ptr<const HandlerEntry> entry) {
+    return add_to(m_handlers, m_mutex, std::move(channel), std::move(entry));
+}
+
+bool ElectronIpc::handle_sync(std::string channel, Handler handler) {
+    if (!handler) {
+        return false;
+    }
+    return add_to(m_sync_handlers, m_mutex, std::move(channel),
+                  std::make_shared<const HandlerEntry>(HandlerEntry{.handler = std::move(handler), .raw = {}, .once = false}));
+}
+
+bool ElectronIpc::handle_sync_raw(std::string channel, RawHandler handler) {
+    if (!handler) {
+        return false;
+    }
+    return add_to(m_sync_handlers, m_mutex, std::move(channel),
+                  std::make_shared<const HandlerEntry>(HandlerEntry{.handler = {}, .raw = std::move(handler), .once = false}));
+}
+
+bool ElectronIpc::remove_sync_handler(std::string_view channel) {
     const std::unique_lock lock(m_mutex);
-    return m_handlers.try_emplace(std::move(channel), std::move(entry)).second;
+    const auto it = m_sync_handlers.find(channel);
+    if (it == m_sync_handlers.end()) {
+        return false;
+    }
+    m_sync_handlers.erase(it);
+    return true;
+}
+
+bool ElectronIpc::has_sync_handler(std::string_view channel) const {
+    const std::shared_lock lock(m_mutex);
+    return m_sync_handlers.find(channel) != m_sync_handlers.end();
 }
 
 bool ElectronIpc::handle(std::string channel, Handler handler) {
@@ -189,6 +224,8 @@ bool ElectronIpc::boson_dispatch(
             out_response = send_from_renderer(request_id, params_json);
         } else if (method == "emit") {
             out_response = emit_from_renderer(request_id, params_json);
+        } else if (method == "sendSync") {
+            out_response = invoke_in(m_sync_handlers, "sendSync", request_id, params_json);
         } else {
             return false;
         }
@@ -209,36 +246,44 @@ bool ElectronIpc::boson_dispatch(
 }
 
 std::string ElectronIpc::invoke(std::uint64_t request_id, std::string_view params_json) {
+    return invoke_in(m_handlers, "invoke", request_id, params_json);
+}
+
+std::string ElectronIpc::invoke_in(HandlerMap& map, std::string_view what, std::uint64_t request_id, std::string_view params_json) {
     ChannelParams params{};
     if (const auto ec = glz::read<kLenient>(params, params_json)) {
         return ipc::make_error_envelope(request_id, -32602, glz::format_error(ec, params_json));
     }
     if (params.channel.empty()) {
-        return ipc::make_error_envelope(request_id, -32602, "ElectronIpc.invoke: 'channel' is required");
+        return ipc::make_error_envelope(request_id, -32602, "ElectronIpc." + std::string{what} + ": 'channel' is required");
     }
     const std::string_view args = args_array(params.args);
     if (args.empty()) {
-        return ipc::make_error_envelope(request_id, -32602, "ElectronIpc.invoke: 'args' must be an array");
+        return ipc::make_error_envelope(request_id, -32602, "ElectronIpc." + std::string{what} + ": 'args' must be an array");
     }
 
     std::shared_ptr<const HandlerEntry> entry;
     {
         const std::shared_lock lock(m_mutex);
-        if (const auto it = m_handlers.find(params.channel); it != m_handlers.end()) {
+        if (const auto it = map.find(params.channel); it != map.end()) {
             entry = it->second;
         }
     }
     if (entry && entry->once) {
         // Only the caller that actually removes the once-handler gets to run it.
         const std::unique_lock lock(m_mutex);
-        const auto it = m_handlers.find(params.channel);
-        if (it != m_handlers.end() && it->second == entry) {
-            m_handlers.erase(it);
+        const auto it = map.find(params.channel);
+        if (it != map.end() && it->second == entry) {
+            map.erase(it);
         } else {
             entry.reset();
         }
     }
     if (!entry) {
+        if (what == "sendSync") {
+            return ipc::make_error_envelope(
+                request_id, -32601, "No sendSync handler registered for '" + params.channel + "' (ElectronIpc::handle_sync)");
+        }
         return ipc::make_error_envelope(request_id, -32601, "No handler registered for '" + params.channel + "'");
     }
 
