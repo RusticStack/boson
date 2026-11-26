@@ -37,6 +37,7 @@ PermissionKind to_permission_kind(COREWEBVIEW2_PERMISSION_KIND kind) noexcept {
     case COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS: return PermissionKind::LocalFonts;
     case COREWEBVIEW2_PERMISSION_KIND_MIDI_SYSTEM_EXCLUSIVE_MESSAGES: return PermissionKind::MidiSystemExclusiveMessages;
     case COREWEBVIEW2_PERMISSION_KIND_WINDOW_MANAGEMENT: return PermissionKind::WindowManagement;
+    case COREWEBVIEW2_PERMISSION_KIND_PERSISTENT_STORAGE: return PermissionKind::PersistentStorage;
     default: break;
     }
     return PermissionKind::Unknown;
@@ -89,6 +90,11 @@ PermissionRequest::PermissionRequest(ComPtr<ICoreWebView2PermissionRequestedEven
 
 bool PermissionRequest::set_state(PermissionState state) const noexcept {
     return m_args && BOSON_HR_CHECK(m_args->put_State(to_native_state(state)));
+}
+
+bool PermissionRequest::set_saves_in_profile(bool saves) const noexcept {
+    ComPtr<ICoreWebView2PermissionRequestedEventArgs3> args3;
+    return m_args && SUCCEEDED(m_args.As(&args3)) && args3 && BOSON_HR_CHECK(args3->put_SavesInProfile(saves ? TRUE : FALSE));
 }
 
 std::function<void(PermissionState)> PermissionRequest::defer() const {
@@ -473,6 +479,37 @@ void WebView::register_event_handlers() {
             .Get(),
         &m_tokens.permission));
 
+    if (m_controller != nullptr) {
+        BOSON_HR_CHECK(m_controller->add_ZoomFactorChanged(
+            Callback<ICoreWebView2ZoomFactorChangedEventHandler>(
+                [this, live](ICoreWebView2Controller* sender, IUnknown*) -> HRESULT {
+                    if (!live() || !m_events.on_zoom_factor_changed || sender == nullptr) {
+                        return S_OK;
+                    }
+                    double factor = 1.0;
+                    if (SUCCEEDED(sender->get_ZoomFactor(&factor))) {
+                        m_events.on_zoom_factor_changed(factor);
+                    }
+                    return S_OK;
+                })
+                .Get(),
+            &m_tokens.zoom));
+    }
+
+    ComPtr<ICoreWebView2_24> webview24;
+    if (SUCCEEDED(m_webview.As(&webview24)) && webview24) {
+        BOSON_HR_CHECK(webview24->add_NotificationReceived(
+            Callback<ICoreWebView2NotificationReceivedEventHandler>(
+                [this, live](ICoreWebView2*, ICoreWebView2NotificationReceivedEventArgs* args) -> HRESULT {
+                    if (live() && args != nullptr && m_events.on_notification_received) {
+                        m_events.on_notification_received(args);
+                    }
+                    return S_OK;
+                })
+                .Get(),
+            &m_tokens.notification));
+    }
+
     ComPtr<ICoreWebView2_4> webview4;
     if (SUCCEEDED(m_webview.As(&webview4)) && webview4) {
         BOSON_HR_CHECK(webview4->add_DownloadStarting(
@@ -679,6 +716,15 @@ void WebView::unregister_event_handlers() noexcept {
         ComPtr<ICoreWebView2_15> webview15;
         if (SUCCEEDED(m_webview.As(&webview15)) && webview15) {
             remove(m_tokens.favicon, [&webview15](EventRegistrationToken t) { webview15->remove_FaviconChanged(t); });
+        }
+        ComPtr<ICoreWebView2_24> webview24;
+        if (SUCCEEDED(m_webview.As(&webview24)) && webview24) {
+            remove(m_tokens.notification, [&webview24](EventRegistrationToken t) { webview24->remove_NotificationReceived(t); });
+        }
+    }
+    if (m_controller != nullptr) {
+        if (m_tokens.zoom.value != 0) {
+            m_controller->remove_ZoomFactorChanged(m_tokens.zoom);
         }
     }
     webview::detail::unregister_security_event_handlers(

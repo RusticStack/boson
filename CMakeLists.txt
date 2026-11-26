@@ -62,6 +62,13 @@ add_library(boson_core STATIC
     src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
+    src/native/message_box.cpp
+    src/native/permissions.cpp
+    src/native/web_notifications.cpp
+    src/native/browser_args.cpp
+    src/native/metrics.cpp
+    src/native/system_info.cpp
+    src/native/session.cpp
     src/shell/app_id.cpp
     src/shell/icon.cpp
     src/shell/taskbar.cpp
@@ -192,6 +199,13 @@ add_executable(boson_browser WIN32
 )
 target_link_libraries(boson_browser PRIVATE boson_core)
 
+# Native platform pieces end to end: dialogs, permissions + JS prompt hook, web notifications -> toasts, zoom,
+# metrics, locale / preferences, shutdown blocking, close-to-tray (docs/NATIVE.md).
+add_executable(boson_native_example WIN32
+    examples/native/main.cpp
+)
+target_link_libraries(boson_native_example PRIVATE boson_core)
+
 add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
 )
@@ -289,6 +303,7 @@ if(BOSON_BUN_EXECUTABLE)
             frontend/src/boson.ts
             frontend/src/generated/boson-method-params.ts
             frontend/src/compat/electron.ts
+            frontend/src/native.ts
             frontend/src/compat/tauri.ts
             frontend/src/compat/wails.ts
         COMMENT "Bundling the compat shim self-test"
@@ -372,6 +387,15 @@ add_executable(boson_store_tests
 target_link_libraries(boson_store_tests PRIVATE boson_core)
 add_test(NAME boson_store_tests COMMAND boson_store_tests)
 set_tests_properties(boson_store_tests PROPERTIES TIMEOUT 120)
+# Native platform pieces: dialogs (auto-driven, never left open), message boxes, permissions, web notifications,
+# zoom, browser arguments, metrics, locale / preferences, session end, close-to-tray. Opens one small
+# non-activated window; the WebView2 part skips when no runtime is installed.
+add_executable(boson_native_tests
+    tests/test_native.cpp
+)
+target_link_libraries(boson_native_tests PRIVATE boson_core)
+add_test(NAME boson_native_tests COMMAND boson_native_tests)
+set_tests_properties(boson_native_tests PROPERTIES LABELS integration TIMEOUT 240)
 # File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
 # the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
 add_executable(boson_transfer_tests

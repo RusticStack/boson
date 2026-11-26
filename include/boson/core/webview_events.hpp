@@ -69,6 +69,7 @@ enum class PermissionKind {
     LocalFonts,
     MidiSystemExclusiveMessages,
     WindowManagement,
+    PersistentStorage,
 };
 
 enum class PermissionState {
@@ -88,6 +89,9 @@ public:
     [[nodiscard]] bool is_user_initiated() const noexcept { return m_user_initiated; }
 
     bool set_state(PermissionState state) const noexcept;
+    /// @brief ICoreWebView2PermissionRequestedEventArgs3::SavesInProfile. false keeps the WebView2 profile from
+    /// remembering the decision, so the app's own policy (native::PermissionManager) stays authoritative.
+    bool set_saves_in_profile(bool saves) const noexcept;
     /// @brief Keeps the request open; the returned function must be called exactly once.
     [[nodiscard]] std::function<void(PermissionState)> defer() const;
 
@@ -189,6 +193,11 @@ struct WebViewEventHandlers {
     std::function<void()> on_window_close_requested;
     std::function<void(PermissionRequest&)> on_permission_requested;
     std::function<void(DownloadStartingEvent&)> on_download_starting;
+    /// ICoreWebView2Controller::ZoomFactorChanged (Ctrl+wheel, Ctrl+plus/minus, put_ZoomFactor).
+    std::function<void(double zoom_factor)> on_zoom_factor_changed;
+    /// ICoreWebView2_24::NotificationReceived (Web Notification API). args is valid during the call; set
+    /// put_Handled(TRUE) to replace the runtime's default notification UI (see native::WebNotificationHost).
+    std::function<void(ICoreWebView2NotificationReceivedEventArgs* args)> on_notification_received;
     /// Composition hosting only: the CSS app-region layout changed.
     std::function<void()> on_non_client_region_changed;
     /// Security prompts (boson/webview/security_events.hpp). Unset = the runtime's default UI.

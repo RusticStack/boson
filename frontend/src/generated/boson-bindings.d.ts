@@ -186,6 +186,60 @@ export interface CredentialListResponse {
     keys: Array<string>;
 }
 
+export interface FileDialogReply {
+    cancelled: boolean;
+    paths: Array<string>;
+    path: string;
+    filter_index: number;
+    error: string;
+}
+
+export interface DialogFilter {
+    name: string;
+    extensions: Array<string>;
+}
+
+export interface FileDialogRequest {
+    title: string;
+    default_path: string;
+    default_name: string;
+    button_label: string;
+    filters: Array<DialogFilter>;
+    filter_index: number;
+    multiple: boolean;
+    show_hidden: boolean;
+    confirm_overwrite: boolean;
+    default_extension: string;
+    add_to_recent: boolean;
+    modal: boolean;
+}
+
+export interface MessageBoxReply {
+    response: number;
+    checkbox_checked: boolean;
+    cancelled: boolean;
+}
+
+export interface MessageBoxRequest {
+    title: string;
+    message: string;
+    detail: string;
+    type: string;
+    buttons: Array<string>;
+    default_id: number;
+    cancel_id: number;
+    checkbox_label: string;
+    checkbox_checked: boolean;
+    footer: string;
+    command_links: boolean;
+    modal: boolean;
+}
+
+export interface ErrorBoxRequest {
+    title: string;
+    content: string;
+}
+
 export interface FsTextResponse {
     text: string;
 }
@@ -385,6 +439,68 @@ export interface TrayIconRequest {
     icon_base64: string;
 }
 
+export interface ProcessMetric {
+    pid: number;
+    type: string;
+    working_set_bytes: number;
+    peak_working_set_bytes: number;
+    private_bytes: number;
+    cpu_percent: number;
+    cpu_time_ms: number;
+    created_unix_ms: number;
+    accessible: boolean;
+}
+
+export interface AppMetrics {
+    processes: Array<ProcessMetric>;
+    total_working_set_bytes: number;
+    total_private_bytes: number;
+    total_cpu_percent: number;
+    logical_processors: number;
+    sample_duration_us: number;
+}
+
+export interface LocaleInfo {
+    user_locale: string;
+    system_locale: string;
+    ui_language: string;
+    preferred_languages: Array<string>;
+    region: string;
+    decimal_separator: string;
+    list_separator: string;
+    time_24h: boolean;
+    first_day_of_week: number;
+    measurement_metric: number;
+}
+
+export interface SystemPreferences {
+    dark_mode: boolean;
+    high_contrast: boolean;
+    high_contrast_scheme: string;
+    reduced_motion: boolean;
+    transparency_effects: boolean;
+    accent_color: string;
+    text_scale_factor: number;
+    keyboard_cues: boolean;
+    caret_blink_ms: number;
+    double_click_ms: number;
+    wheel_scroll_lines: number;
+    swap_mouse_buttons: boolean;
+}
+
+export interface ShellResult {
+    ok: boolean;
+    error: string;
+}
+
+export interface ShutdownBlockRequest {
+    reason: string;
+}
+
+export interface CloseToTrayRequest {
+    enabled: boolean;
+}
+
 export interface ToastResponse {
     ok: boolean;
     used_fallback: boolean;
@@ -447,11 +563,6 @@ export interface ToastRequest {
     level: string;
 }
 
-export interface ShellResult {
-    ok: boolean;
-    error: string;
-}
-
 export interface ToastUpdateRequest {
     tag: string;
     group: string;
@@ -467,6 +578,51 @@ export interface ToastSupportResponse {
     supported: boolean;
     app_user_model_id: string;
     setting: string;
+}
+
+export interface PermissionRule {
+    origin: string;
+    kind: string;
+    decision: string;
+}
+
+export interface PermissionQueryReply {
+    decision: string;
+    remembered: boolean;
+}
+
+export interface PermissionTarget {
+    origin: string;
+    kind: string;
+}
+
+export interface PermissionSetRequest {
+    origin: string;
+    kind: string;
+    decision: string;
+}
+
+export interface PermissionOriginRequest {
+    origin: string;
+}
+
+export interface PermissionPromptEvent {
+    id: number;
+    webview_id: number;
+    origin: string;
+    uri: string;
+    kind: string;
+    user_initiated: boolean;
+}
+
+export interface PermissionRespondRequest {
+    id: number;
+    decision: string;
+    remember: boolean;
+}
+
+export interface PromptHandlerRequest {
+    enabled: boolean;
 }
 
 export interface PowerStatusResponse {
@@ -1014,6 +1170,20 @@ export interface DrmProbeRequest {
     timeout_ms?: number | null;
 }
 
+export interface ZoomState {
+    webview_id: number;
+    factor: number;
+    level: number;
+}
+
+export interface ZoomFactorRequest {
+    factor: number;
+}
+
+export interface ZoomLevelRequest {
+    level: number;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -1127,6 +1297,38 @@ export interface StoreChangedEvent_DemoSettings {
     change: StoreChange;
 }
 
+export interface PermissionChangedEvent {
+    rules: Array<PermissionRule>;
+}
+
+export interface SessionQueryEndEvent {
+    logoff: boolean;
+    close_app: boolean;
+    critical: boolean;
+    blocked: boolean;
+    block_reason: string;
+}
+
+export interface SessionEndEvent {
+    ending: boolean;
+    logoff: boolean;
+    close_app: boolean;
+    critical: boolean;
+}
+
+export interface TrayHiddenEvent {
+    hidden: boolean;
+}
+
+export interface WebNotificationEventPayload {
+    id: number;
+    webview_id: number;
+    origin: string;
+    title: string;
+    body: string;
+    tag: string;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1176,6 +1378,11 @@ export interface BosonApi {
     "Credential.get": (params: CredentialKeyRequest) => Promise<CredentialGetResponse>;
     "Credential.remove": (params: CredentialKeyRequest) => Promise<CredentialRemoveResponse>;
     "Credential.list": () => Promise<CredentialListResponse>;
+    "Dialog.open": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.save": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.pick_folder": (params: FileDialogRequest) => Promise<FileDialogReply>;
+    "Dialog.message_box": (params: MessageBoxRequest) => Promise<MessageBoxReply>;
+    "Dialog.error_box": (params: ErrorBoxRequest) => Promise<void>;
     "Fs.read_text": (params: FsPathRequest) => Promise<FsTextResponse>;
     "Fs.read_bytes": (params: FsPathRequest) => Promise<FsBytesResponse>;
     "Fs.write_text": (params: FsWriteTextRequest) => Promise<void>;
@@ -1206,12 +1413,27 @@ export interface BosonApi {
     "Menu.tray_set_tooltip": (params: TrayTooltipRequest) => Promise<BoolResponse>;
     "Menu.tray_set_icon": (params: TrayIconRequest) => Promise<BoolResponse>;
     "Menu.tray_show_balloon": (params: NotifyRequest) => Promise<BoolResponse>;
+    "Native.metrics": () => Promise<AppMetrics>;
+    "Native.locale": () => Promise<LocaleInfo>;
+    "Native.system_preferences": () => Promise<SystemPreferences>;
+    "Native.set_shutdown_block_reason": (params: ShutdownBlockRequest) => Promise<ShellResult>;
+    "Native.set_close_to_tray_enabled": (params: CloseToTrayRequest) => Promise<ShellResult>;
+    "Native.hide_to_tray": () => Promise<ShellResult>;
+    "Native.restore_from_tray": () => Promise<ShellResult>;
     "Notification.show": (params: ToastRequest) => Promise<ToastResponse>;
     "Notification.update_progress": (params: ToastUpdateRequest) => Promise<ShellResult>;
     "Notification.hide": (params: ToastTargetRequest) => Promise<ShellResult>;
     "Notification.remove": (params: ToastTargetRequest) => Promise<ShellResult>;
     "Notification.clear_all": () => Promise<ShellResult>;
     "Notification.support": () => Promise<ToastSupportResponse>;
+    "Permissions.list": () => Promise<Array<PermissionRule>>;
+    "Permissions.query": (params: PermissionTarget) => Promise<PermissionQueryReply>;
+    "Permissions.set": (params: PermissionSetRequest) => Promise<ShellResult>;
+    "Permissions.reset": (params: PermissionTarget) => Promise<ShellResult>;
+    "Permissions.clear": (params: PermissionOriginRequest) => Promise<ShellResult>;
+    "Permissions.pending": () => Promise<Array<PermissionPromptEvent>>;
+    "Permissions.respond": (params: PermissionRespondRequest) => Promise<ShellResult>;
+    "Permissions.set_prompt_handler": (params: PromptHandlerRequest) => Promise<void>;
     "Power.status": () => Promise<PowerStatusResponse>;
     "Power.idle_time": () => Promise<IdleTimeResponse>;
     "Power.idle_state": (params: IdleStateRequest) => Promise<IdleStateResponse>;
@@ -1287,6 +1509,12 @@ export interface BosonApi {
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
     "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
+    "Zoom.get": () => Promise<ZoomState>;
+    "Zoom.set": (params: ZoomFactorRequest) => Promise<ZoomState>;
+    "Zoom.set_level": (params: ZoomLevelRequest) => Promise<ZoomState>;
+    "Zoom.zoom_in": () => Promise<ZoomState>;
+    "Zoom.zoom_out": () => Promise<ZoomState>;
+    "Zoom.reset": () => Promise<ZoomState>;
 }
 
 export interface BosonEvents {
@@ -1318,4 +1546,15 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "permission:prompt": PermissionPromptEvent;
+    "permission:changed": PermissionChangedEvent;
+    "zoom:changed": ZoomState;
+    "system:preferences-changed": SystemPreferences;
+    "system:locale-changed": LocaleInfo;
+    "session:query-end": SessionQueryEndEvent;
+    "session:end": SessionEndEvent;
+    "tray:window-hidden": TrayHiddenEvent;
+    "web-notification:shown": WebNotificationEventPayload;
+    "web-notification:clicked": WebNotificationEventPayload;
+    "web-notification:closed": WebNotificationEventPayload;
 }
