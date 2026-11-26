@@ -311,3 +311,19 @@ boson_bench --compare bench-results\boson_bench_app.json bench-results\electron.
   on Windows 10, on a quiet machine, at a DPI other than this machine's, and installer sizes (no NSIS/WiX).
 - The window probe measures window geometry, not presentation: a content HWND in place does not prove its pixels
   were composed in the same frame.
+
+## Host footprint: threads, modules, idle wake-ups (memory-footprint pass)
+
+Measured with `bench/memsnap.ps1` on the Release build (details, methods and the WebView2 option experiments in
+[PERFORMANCE.md](PERFORMANCE.md#memory-footprint-threads-and-idle-cost)). Host = the app's own process; median of 5
+interleaved runs, 12 s idle window. `boson_kitchen_sink` (examples/kitchen_sink) is bench_app with every module constructed
+and registered.
+
+| App | Threads before -> after | Host private WS (MB) before -> after | Host commit (MB) before -> after | Modules before -> after |
+|---|---:|---:|---:|---:|
+| boson_bench_app | 33 -> 15 | 3.29 -> 2.55 | 4.66 -> 3.63 | 44 -> 42 |
+| boson_demo | 36 -> 18 | 3.82 -> 2.88 | 5.50 -> 4.19 | 47 -> 44 |
+| boson_kitchen_sink | 36 -> 18 | 4.45 -> 3.20 | 6.50 -> 4.82 | 56 -> 51 |
+
+Minimized (tree private WS): bench_app 84.9 -> 77.0 MB, kitchen sink 83.8 -> 75.7 MB. The Debug-build idle numbers in the first
+table of this file predate this pass; they were not re-measured.

@@ -348,6 +348,19 @@ int main() {
     IT_CHECK(pump_until([&]() { return b.is_suspended() == std::optional<bool>{false}; }, std::chrono::seconds{5}));
     IT_CHECK(eval(b, "window.__keep") == std::optional<std::string>{"42"});
 
+    // Minimizing the parent trims the WebView's memory (Low) without changing the requested level; restoring undoes it.
+    IT_CHECK(b.applied_memory_target() == boson::core::MemoryUsageTarget::Normal);
+    b.set_parent_minimized(true);
+    IT_CHECK(b.applied_memory_target() == boson::core::MemoryUsageTarget::Low);
+    IT_CHECK(b.memory_usage_target() == boson::core::MemoryUsageTarget::Normal);
+    b.set_keep_visible_when_minimized(true); // media apps opt out: keeps rendering, keeps its memory
+    IT_CHECK(b.applied_memory_target() == boson::core::MemoryUsageTarget::Normal);
+    b.set_keep_visible_when_minimized(false);
+    IT_CHECK(b.applied_memory_target() == boson::core::MemoryUsageTarget::Low);
+    b.set_parent_minimized(false);
+    IT_CHECK(b.applied_memory_target() == boson::core::MemoryUsageTarget::Normal);
+    IT_CHECK(eval(b, "window.__keep") == std::optional<std::string>{"42"});
+
     // SleepPolicy puts a hidden, silent WebView to sleep.
     bool slept = false;
     host->set_on_slept([&](boson::core::WebView& w) { slept = &w == &b; });

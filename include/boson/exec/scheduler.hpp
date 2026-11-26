@@ -12,9 +12,19 @@ namespace boson::exec {
 /// @brief Manages the background worker thread pool via NVIDIA stdexec.
 class Scheduler {
 public:
-    /// @brief Returns the default worker thread count for this machine.
+    /// @brief Upper bound of the default pool size (see default_thread_count()).
+    static constexpr std::uint32_t kMaxDefaultThreads = 6;
+
+    /// @brief Returns the default worker thread count for this machine: half the logical processors, clamped
+    /// to [2, kMaxDefaultThreads].
+    ///
+    /// IPC handlers are short and the UI thread never runs them, so a pool the size of the machine only adds
+    /// idle threads: every worker costs ~40 KB of private working set, ~56 KB of commit, a kernel stack and a
+    /// handle for the life of the process (measured: 24 -> 6 threads saves ~0.75 MB WS / ~1 MB commit with no
+    /// change in IPC throughput, docs/PERFORMANCE.md). Pass an explicit count to Scheduler for a workload
+    /// that blocks pool threads.
     [[nodiscard]] static std::uint32_t default_thread_count() noexcept {
-        return std::max(2u, std::thread::hardware_concurrency());
+        return std::clamp(std::thread::hardware_concurrency() / 2, 2u, kMaxDefaultThreads);
     }
 
     /// @brief Constructs a static thread pool with the given number of threads.
