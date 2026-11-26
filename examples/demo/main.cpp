@@ -96,6 +96,14 @@ int WINAPI wWinMain(
     HINSTANCE /*prev_instance*/,
     PWSTR /*cmd_line*/,
     int show_cmd) {
+    // When started as the install helper of boson::shipping::Updater, do that job and exit.
+    if (const auto helper_exit = boson::shipping::Updater::run_helper_if_requested()) {
+        return *helper_exit;
+    }
+    // Minidumps of crashes go to %LOCALAPPDATA%\Boson Demo\crashes (nothing is uploaded).
+    boson::shipping::CrashReporter crash_reporter({.app_name = L"Boson Demo", .app_version = "0.1.0"});
+    crash_reporter.install();
+
     // A relaunch() must not race the previous process for the WebView2 user data folder.
     boson::app::wait_for_previous_instance();
 
@@ -175,6 +183,8 @@ int WINAPI wWinMain(
             },
         });
     webview_ptr = &webview;
+
+    crash_reporter.attach_webview(webview); // logs render / GPU process failures
 
     boson::ipc::SystemController system_controller(window, webview, marshal);
     boson::demo::AppController app_controller;

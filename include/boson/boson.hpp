@@ -87,6 +87,17 @@
 #include <boson/security/safe_storage.hpp>
 #include <boson/security/scoped_fs.hpp>
 #include <boson/security/web_security.hpp>
+#include <boson/shipping/authenticode.hpp>
+#include <boson/shipping/crash_reporter.hpp>
+#include <boson/shipping/crypto.hpp>
+#include <boson/shipping/http.hpp>
+#include <boson/shipping/logger.hpp>
+#include <boson/shipping/updater.hpp>
+#include <boson/shipping/version.hpp>
+#include <boson/shipping/webview2_runtime.hpp>
+
+#include <boson/ipc/controllers/log_controller.hpp>
+#include <boson/ipc/controllers/updater_controller.hpp>
 
 #include <boson/assets/asset_registry.hpp>
 
