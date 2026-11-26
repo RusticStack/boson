@@ -143,8 +143,65 @@ const off = Events.On('tick', (e) => console.log(e.name, e.data));
 await Events.Emit('ui-ready', { ok: true });
 ```
 
-`Call.ByName / Call.Call` (by name), `Call.ByID` rejects (Wails' numeric IDs come from its generator);
-`Events.On / Once / OnMultiple / Off / OffAll / Emit`; `bindService` mimics the generated `frontend/bindings` modules.
+`Call.ByName / ByID / Call`, `CancellablePromise`, `Create`, `Events.On / Once / OnMultiple / Off / OffAll / Emit`,
+`Window`, `Application.Quit`; `bindService` builds a service object by hand.
+
+#### Running `wails3 generate bindings` output unchanged
+
+The files Wails writes to `frontend/bindings/` import `Call`, `CancellablePromise` and `Create` from
+`@wailsio/runtime` and call methods by numeric ID. With the alias above (`frontend/vite.config.ts` and
+`frontend/tsconfig.json` already carry it) they build and run as generated:
+
+```ts
+import { registerBindingPackage } from '@wailsio/runtime';      // Boson-only export of the shim
+import { TabService, Tab } from './bindings/myapp';              // generated, not edited
+registerBindingPackage('main');                                   // once, before the first call
+const tab: Tab | null = await TabService.CreateTab('https://example.com', 'Example');
+```
+
+```cpp
+// C++ side: controller name = Go service name, glz::meta key = Go method name, one request struct whose
+// members are the Go parameters in order (their names do not have to match the Go names).
+struct CreateTabRequest { std::string raw_url; std::string title; };
+class TabService {
+public:
+    BOSON_CONTROLLER("TabService");
+    std::optional<Tab> create_tab(CreateTabRequest req);   // throw -> the promise rejects with the message
+};
+template <> struct glz::meta<TabService> {
+    using T = TabService;
+    static constexpr auto value = glz::object("CreateTab", &T::create_tab);
+};
+```
+
+- **Method IDs.** Wails' ID is the 32-bit FNV-1a hash of the UTF-8 bytes of `"pkg.Service.Method"` (`internal/hash/fnv.go`
+  in wails v3.1.0, used by both the generator and `pkg/application/bindings.go`); `pkg` is `main` for package main,
+  else the Go import path. `bindingId(name)` computes it. Register names once:
+  `registerBindingPackage(pkg)` hashes `pkg.Controller.method` for every method in `boson-method-params.ts`
+  (plus any `registerBindingParams`), `registerBindingNames([...])` takes full names (e.g. the strings in
+  `wails3 generate bindings -names` output), `registerBindingIds({ id: name })` covers `//wails:id` overrides.
+  An unregistered ID rejects with code -32601.
+- **Positional arguments.** `boson_tsgen <bindings.d.ts> <boson-method-params.ts>` writes the request struct's
+  reflected member names for every method (`TsGenerator::generate_method_params<Controllers...>()`); the shim
+  loads `generated/boson-method-params.ts` and sends `Method(a, b)` as `{ [names[0]]: a, [names[1]]: b }`.
+  A single object argument that already is the request (Boson style) is passed unchanged; more arguments than
+  names reject with -32602. For controllers not in your tsgen run, call `registerBindingParams({...})` with
+  `TsGenerator::method_params_json<...>()`, or `defineBinding(name, { params })`.
+- **`CancellablePromise`** is a Promise subclass; `then / catch / finally` keep the class, `cancel(cause)` rejects
+  a pending promise with `CancelError` (`cause` set), runs `oncancelled` and cancels the promise it was chained
+  from; also `cancelOn(signal)`, `withResolvers()`, `CancellablePromise.cancel / timeout / sleep`. Boson has no
+  cancel message: the C++ handler still runs to completion and its late response is dropped.
+- **`Create`**: `Any, ByteSlice, Array, Map, Nullable, Struct, DateFromTime, Events`, same behaviour as the runtime's.
+- **`Window`** (the current window; `Get(name)` returns the same object) maps onto `SystemController`:
+  `Minimise` -> `minimize`, `Maximise / UnMaximise` -> `is_maximized` then `maximize_or_restore` when needed,
+  `ToggleMaximise` -> `maximize_or_restore`, `Restore` -> `set_fullscreen(false)` when fullscreen, else `restore`,
+  `UnMinimise` -> `restore`, `IsMaximised / IsMinimised / IsFullscreen`, `Fullscreen / UnFullscreen / ToggleFullscreen`,
+  `Close`, `SetTitle`, `Center`, `SetAlwaysOnTop`, `SetMinSize`, `SetZoom / ZoomReset`, `Reload / ForceReload`,
+  `OpenDevTools`. Other Wails window methods (position, size, hide/show, max size, frameless...) are not provided,
+  so a port that uses them fails to type-check instead of silently doing nothing.
+- **`Application.Quit`** -> `SystemController::quit`: runs `set_quit_handler(fn)` on the UI thread (e.g.
+  `[&] { boson::app::quit({env}); }`), or closes the window when no handler is set.
+- `SystemController` gained `restore`, `is_minimized`, `is_fullscreen`, `quit` and `set_quit_handler` for this.
 
 ## Verification
 
@@ -160,7 +217,7 @@ Tested on this machine (Windows 11 Pro 10.0.26300, WebView2 runtime 158.0.4370.3
     `event.reply` event reaches only A; `send(b.id())` reaches only B; `broadcast` reaches both; frontend emit
     reaches the C++ listener and is re-broadcast.
   - The three TypeScript shims, bundled with `bun build` (tests/js/compat_selftest.ts), run inside the real
-    WebView against the C++ side: **27/27 JS assertions passed** (skipped automatically when bun is not installed).
+    WebView against the C++ side (skipped automatically when bun is not installed).
 - `boson_tests` still prints "All Boson tests passed."; `boson_integration_tests` 108/108 (Router and Bridge were touched).
 - `tsc --noEmit` passes for `frontend/` (including `src/compat/*`) and for the self-test file. The TypeScript
   compiler used was the one already installed in the main checkout's `frontend/node_modules`; this worktree has no
@@ -168,3 +225,39 @@ Tested on this machine (Windows 11 Pro 10.0.26300, WebView2 runtime 158.0.4370.3
 
 Not verified: real Electron / Tauri / Wails applications were not ported end to end (none is installed here);
 the shims were checked against the documented API shapes, not against those frameworks' own test suites.
+
+### Verification: Wails generated bindings (issue #16)
+
+Run on 2026-11-26, same machine, MSVC Debug /W4 (zero warnings), wails3 v3.1.0, Go 1.27.4, bun 1.4.4, TypeScript 5.9.3:
+
+- **Fixture is real generator output.** A throwaway Wails v3 project outside the repo (package main, one
+  `TabService` with a `Tab` model holding `[]string`, `map[string]string` and `*Tab`, and methods with 0, 2 and 3
+  positional args, a model argument, a void and an error result) was run through `wails3 generate bindings -ts`;
+  `tests/js/fixtures/wails/bindings/` is that output, unchanged; the Go source is `tests/js/fixtures/wails/tabs.go.txt`.
+- **ID algorithm** read from the wails v3.1.0 module source (`internal/hash/fnv.go`: `fnv.New32a` over `pkg.Type.Method`,
+  `internal/generator/collect/service.go` and `pkg/application/bindings.go`). All six IDs in the fixture equal
+  `bindingId('main.TabService.<Method>')`; the self-test asserts the `CreateTab` literal.
+- `boson_porting_tests`: **132/132 checks passed**, of which **60/60 JS assertions** in the WebView. New: the fixture's
+  generated functions called by ID against `pt::TabService` (model instances via `createFrom`, nested
+  `Create.Nullable(Tab.createFrom)`, `Create.Array`, argument order, void and throwing methods, unregistered IDs,
+  extra args, `-names` style `Call.ByName`, `registerBindingIds`), cancellation (direct, chained, `withResolvers`),
+  `Create` helpers, and `Window` / `Application.Quit` against `pt::FakeWindowController`, a recording controller with
+  `SystemController`'s method names, so the test never moves or focuses a real window. A headless check asserts that
+  every method the fake exposes exists on the real `SystemController` with the same parameter names, and checks
+  `TsGenerator::method_params_json` output exactly. The positional names the page uses come from
+  `TsGenerator::method_params_json<pt::TabService>()` injected at run time.
+- `boson_compat_typecheck` (new ctest): `tsc --noEmit` with `strict` / `noUnusedLocals` over the self-test and the
+  fixture, with `@wailsio/runtime` resolved through `tests/js/tsconfig.json` "paths". `frontend`: `bun run build`
+  (tsc + vite) passes with the new alias.
+- **Vite alias.** The ctest bundle is built by `bun build` (alias from tsconfig "paths"). Separately, once, the same
+  self-test was bundled by Vite 6.4.6 with `resolve.alias['@wailsio/runtime']` as in `frontend/vite.config.ts`, and
+  that bundle also passed 60/60 in `boson_porting_tests`. That Vite run is not part of ctest.
+- Full ctest: 13/13 passed.
+
+Not verified: the real `SystemController` methods added here (`restore`, `is_minimized`, `is_fullscreen`, `quit`) were
+compiled and their names / parameters checked, but not run against a live window (that would move and focus a window
+during the test run). The Wails `Window` shim was therefore run against the fake controller only. Wails' event
+payload typing (`Create.Events` filled by the generator for typed custom events) was only exercised as the empty map
+the fixture produces. Under the real C++26 reflection path (`__cpp_impl_reflection`) method names come from
+identifiers rather than `glz::meta` keys, so a `CreateTab` key needs `defineBinding` there; MSVC uses the
+`glz::meta` path, which is the one tested.

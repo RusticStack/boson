@@ -33,7 +33,7 @@ handler / command / bound method in C++ with `ElectronIpc::handle`, then move ho
 | Reply to the sender | `event.reply`, `event.sender` | `Window` argument | `sender` of the event | `ipc::current_sender_id()` + `Bridge::emit_to` | `IpcEvent::reply`, `IpcEvent::sender_id` |
 | Exposing an API to the page | `contextBridge.exposeInMainWorld` (preload) | global `__TAURI__` / npm package | `@wailsio/runtime` | ES module `frontend/src/boson.ts` | `contextBridge.exposeInMainWorld` (single world, frozen global) |
 | Preload / init script | `webPreferences.preload` | `initialization_script` | — | `WebViewConfig::scripts_on_document_created`, `WebView::add_script_on_document_created` | — |
-| Typed bindings | manual / `electron-trpc` | `tauri-specta` | generated `bindings/` | `boson_tsgen` -> `frontend/src/generated/boson-bindings.d.ts` | `bindService` (Wails style) |
+| Typed bindings | manual / `electron-trpc` | `tauri-specta` | generated `bindings/` | `boson_tsgen` -> `frontend/src/generated/boson-bindings.d.ts` | `wails3 generate bindings` output unchanged via the `@wailsio/runtime` alias (`Call.ByID`, `Create`, `CancellablePromise`), or `bindService` |
 | Serialization | structured clone | JSON (serde) | JSON | JSON (glaze, zero-copy `raw_json` params) | JSON |
 | Access control | `contextIsolation`, sandbox | capabilities / permissions | — | `BridgeAttachOptions::allowed_origins` (default `boson://app` + dev origin); detached WebViews never reach the Router | same |
 | Sync IPC | `sendSync` | — | — | not supported (UI never blocks) | `sendSync` throws |

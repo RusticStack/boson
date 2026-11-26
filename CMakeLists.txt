@@ -253,7 +253,14 @@ if(BOSON_BUN_EXECUTABLE)
                 --format=iife "--outfile=${BOSON_PORTING_SHIM_JS}"
         DEPENDS
             tests/js/compat_selftest.ts
+            tests/js/tsconfig.json
+            tests/js/fixtures/wails/bindings/events/index.ts
+            tests/js/fixtures/wails/bindings/github.com/wailsapp/wails/v3/internal/eventcreate.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/index.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/models.ts
+            tests/js/fixtures/wails/bindings/wailsfixture/tabservice.ts
             frontend/src/boson.ts
+            frontend/src/generated/boson-method-params.ts
             frontend/src/compat/electron.ts
             frontend/src/compat/tauri.ts
             frontend/src/compat/wails.ts
@@ -262,6 +269,14 @@ if(BOSON_BUN_EXECUTABLE)
     add_custom_target(boson_porting_shim_js DEPENDS "${BOSON_PORTING_SHIM_JS}")
     add_dependencies(boson_porting_tests boson_porting_shim_js)
     target_compile_definitions(boson_porting_tests PRIVATE BOSON_PORTING_SHIM_JS="${BOSON_PORTING_SHIM_JS}")
+    # tsc --noEmit over the self-test and the real wails3 bindings fixture (strict, the @wailsio/runtime alias
+    # from tests/js/tsconfig.json). Needs frontend/node_modules (cd frontend && bun install).
+    set(BOSON_FRONTEND_TSC "${CMAKE_CURRENT_SOURCE_DIR}/frontend/node_modules/typescript/bin/tsc")
+    add_test(NAME boson_compat_typecheck
+        COMMAND "${BOSON_BUN_EXECUTABLE}" "${BOSON_FRONTEND_TSC}" -p "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/tsconfig.json")
+    if(NOT EXISTS "${BOSON_FRONTEND_TSC}")
+        set_tests_properties(boson_compat_typecheck PROPERTIES DISABLED TRUE)
+    endif()
 endif()
 # WebView features (print/PDF, capture, find, cookies, profiles, proxy, auth events). Unit checks always run;
 # the runtime part skips when no WebView2 runtime is installed. Opens one small non-activated window.

@@ -10,6 +10,8 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
+#include <mutex>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -22,6 +24,8 @@
 #include <glaze/glaze.hpp>
 
 #include <boson/boson.hpp>
+#include <boson/ipc/system_controller.hpp>
+#include <boson/ipc/ts_generator.hpp>
 
 #include "bench_core.hpp"
 
@@ -42,12 +46,200 @@ public:
     [[nodiscard]] AddResult add(AddRequest req) const { return AddResult{.sum = req.a + req.b}; }
 };
 
+// C++ twin of the Go TabService in tests/js/fixtures/wails/tabs.go.txt: the generated Wails bindings in
+// tests/js/fixtures/wails/bindings call it through compat/wails.ts. Request structs name the positional args.
+struct Tab {
+    int id = 0;
+    std::string url;
+    std::string title;
+    bool muted = false;
+    std::vector<std::string> tags;
+    std::map<std::string, std::string> meta;
+    /// Go's `Opener *Tab`: null or a Tab object. Kept as raw JSON because glaze cannot reflect a
+    /// self-referential C++ struct (shared_ptr<Tab> recurses at compile time).
+    glz::raw_json opener{"null"};
+};
+
+struct CreateTabRequest {
+    std::string raw_url;
+    std::string title;
+};
+
+struct RenameRequest {
+    Tab tab;
+    std::string title;
+};
+
+struct ResizeRequest {
+    int id = 0;
+    int width = 0;
+    int height = 0;
+};
+
+struct SetMutedRequest {
+    int id = 0;
+    bool muted = false;
+};
+
+class TabService {
+public:
+    BOSON_CONTROLLER("TabService");
+
+    [[nodiscard]] std::optional<Tab> create_tab(CreateTabRequest req) {
+        if (req.raw_url.empty()) {
+            throw std::invalid_argument("empty url");
+        }
+        const std::scoped_lock lock(m_mutex);
+        Tab tab{
+            .id = static_cast<int>(m_tabs.size()) + 1,
+            .url = std::move(req.raw_url),
+            .title = std::move(req.title),
+            .muted = false,
+            .tags = {"new"},
+            .meta = {{"source", "wails"}},
+            .opener = glz::raw_json{"null"},
+        };
+        if (!m_tabs.empty()) {
+            std::string first;
+            if (glz::write_json(m_tabs.front(), first)) {
+                throw std::runtime_error("cannot serialize the opener tab");
+            }
+            tab.opener = glz::raw_json{std::move(first)};
+        }
+        m_tabs.push_back(tab);
+        return tab;
+    }
+
+    [[nodiscard]] std::vector<Tab> list_tabs() const {
+        const std::scoped_lock lock(m_mutex);
+        return m_tabs;
+    }
+
+    [[nodiscard]] Tab rename(RenameRequest req) const {
+        req.tab.title = std::move(req.title);
+        return req.tab;
+    }
+
+    [[nodiscard]] bool resize(ResizeRequest req) const { return req.id == 1 && req.width > req.height; }
+
+    void set_muted(SetMutedRequest req) {
+        const std::scoped_lock lock(m_mutex);
+        for (auto& tab : m_tabs) {
+            if (tab.id == req.id) {
+                tab.muted = req.muted;
+                return;
+            }
+        }
+        throw std::out_of_range("no tab " + std::to_string(req.id));
+    }
+
+    [[nodiscard]] std::string version() const { return "1.0"; }
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<Tab> m_tabs;
+};
+
+struct FlagResponse {
+    bool value = false;
+};
+
+struct FakeTitleRequest {
+    std::string title;
+};
+
+struct FakeToggleRequest {
+    bool enabled = false;
+};
+
+/// Same "Boson" method names and request members as boson::ipc::SystemController (checked by
+/// test_method_params), recording calls instead of moving a real window, so the test never steals focus.
+class FakeWindowController {
+public:
+    BOSON_CONTROLLER("Boson");
+
+    void minimize() { record("minimize", [](State& s) { s.minimized = true; }); }
+    [[nodiscard]] FlagResponse maximize_or_restore() {
+        bool now = false;
+        record("maximize_or_restore", [&now](State& s) { now = s.maximized = !s.maximized; });
+        return FlagResponse{.value = now};
+    }
+    void restore() { record("restore", [](State& s) { s.minimized = s.maximized = false; }); }
+    void close() { record("close", [](State&) {}); }
+    void quit() { record("quit", [](State&) {}); }
+    void set_title(FakeTitleRequest req) { record("set_title:" + req.title, [](State&) {}); }
+    void set_fullscreen(FakeToggleRequest req) {
+        record(req.enabled ? "set_fullscreen:1" : "set_fullscreen:0", [&req](State& s) { s.fullscreen = req.enabled; });
+    }
+    [[nodiscard]] FlagResponse is_maximized() const { return read([](const State& s) { return s.maximized; }); }
+    [[nodiscard]] FlagResponse is_minimized() const { return read([](const State& s) { return s.minimized; }); }
+    [[nodiscard]] FlagResponse is_fullscreen() const { return read([](const State& s) { return s.fullscreen; }); }
+    [[nodiscard]] std::vector<std::string> calls() const {
+        const std::scoped_lock lock(m_mutex);
+        return m_calls;
+    }
+
+private:
+    struct State {
+        bool minimized = false;
+        bool maximized = false;
+        bool fullscreen = false;
+    };
+
+    template <typename Fn>
+    void record(std::string call, Fn&& change) {
+        const std::scoped_lock lock(m_mutex);
+        m_calls.push_back(std::move(call));
+        change(m_state);
+    }
+
+    template <typename Fn>
+    [[nodiscard]] FlagResponse read(Fn&& get) const {
+        const std::scoped_lock lock(m_mutex);
+        return FlagResponse{.value = get(m_state)};
+    }
+
+    mutable std::mutex m_mutex;
+    State m_state;
+    std::vector<std::string> m_calls;
+};
+
 } // namespace pt
 
 template <>
 struct glz::meta<pt::MathController> {
     using T = pt::MathController;
     static constexpr auto value = glz::object("add", &T::add);
+};
+
+// Wails method names (PascalCase keys) bound to snake_case C++ methods.
+template <>
+struct glz::meta<pt::TabService> {
+    using T = pt::TabService;
+    static constexpr auto value = glz::object(
+        "CreateTab", &T::create_tab,
+        "ListTabs", &T::list_tabs,
+        "Rename", &T::rename,
+        "Resize", &T::resize,
+        "SetMuted", &T::set_muted,
+        "Version", &T::version);
+};
+
+template <>
+struct glz::meta<pt::FakeWindowController> {
+    using T = pt::FakeWindowController;
+    static constexpr auto value = glz::object(
+        "minimize", &T::minimize,
+        "maximize_or_restore", &T::maximize_or_restore,
+        "restore", &T::restore,
+        "close", &T::close,
+        "quit", &T::quit,
+        "set_title", &T::set_title,
+        "set_fullscreen", &T::set_fullscreen,
+        "is_maximized", &T::is_maximized,
+        "is_minimized", &T::is_minimized,
+        "is_fullscreen", &T::is_fullscreen,
+        "calls", &T::calls);
 };
 
 namespace {
@@ -249,6 +441,60 @@ void test_sender_context() {
     PT_CHECK(handler_thread != 0 && handler_thread != ::GetCurrentThreadId());
 }
 
+void test_method_params() {
+    step("TsGenerator::method_params_json (positional names for the Wails shim)");
+    using boson::ipc::TsGenerator;
+    const std::string tabs = TsGenerator::method_params_json<pt::TabService, pt::MathController>();
+    PT_CHECK(tabs == "{\n"
+                     "    \"TabService.CreateTab\": [\"raw_url\", \"title\"],\n"
+                     "    \"TabService.ListTabs\": [],\n"
+                     "    \"TabService.Rename\": [\"tab\", \"title\"],\n"
+                     "    \"TabService.Resize\": [\"id\", \"width\", \"height\"],\n"
+                     "    \"TabService.SetMuted\": [\"id\", \"muted\"],\n"
+                     "    \"TabService.Version\": [],\n"
+                     "    \"Math.add\": [\"a\", \"b\"]\n"
+                     "}");
+    PT_CHECK(TsGenerator::method_params_json<>() == "{}");
+    const std::string module = TsGenerator::generate_method_params<pt::MathController>();
+    PT_CHECK(contains(module, "export const bosonMethodParams: Readonly<Record<string, readonly string[] | null>> = {"));
+    PT_CHECK(contains(module, "\"Math.add\": [\"a\", \"b\"]\n};\n"));
+
+    // Every method the fake window controller (and so the Wails Window shim) uses exists on the real
+    // SystemController with the same parameter names.
+    const std::string real = TsGenerator::method_params_json<boson::ipc::SystemController>();
+    std::istringstream fake{TsGenerator::method_params_json<pt::FakeWindowController>()};
+    int compared = 0;
+    for (std::string line; std::getline(fake, line);) {
+        if (!line.starts_with("    \"Boson.") || contains(line, "Boson.calls")) {
+            continue;
+        }
+        if (line.ends_with(',')) {
+            line.pop_back();
+        }
+        ++compared;
+        if (!contains(real, line)) {
+            std::cerr << "  SystemController lacks: " << line << "\n";
+            PT_CHECK(false);
+        }
+    }
+    PT_CHECK(compared == 10);
+    PT_CHECK(contains(real, "\"Boson.set_min_size\": [\"width\", \"height\"]"));
+    PT_CHECK(contains(real, "\"Boson.set_zoom\": [\"factor\"]"));
+    PT_CHECK(contains(real, "\"Boson.set_always_on_top\": [\"enabled\"]"));
+
+    // The C++ side of the generated-bindings round trip, through the Router.
+    pt::TabService tabs_service;
+    boson::ipc::Router<pt::TabService> router(tabs_service);
+    std::string r = router.dispatch_sync(R"({"id":1,"method":"TabService.CreateTab","params":{"raw_url":"https://a","title":"A"}})");
+    PT_CHECK(contains(r, R"("id":1,"url":"https://a","title":"A","muted":false,"tags":["new"],"meta":{"source":"wails"},"opener":null)"));
+    r = router.dispatch_sync(R"({"id":2,"method":"TabService.CreateTab","params":{"raw_url":"https://b","title":"B"}})");
+    PT_CHECK(contains(r, R"("opener":{"id":1,)"));
+    r = router.dispatch_sync(R"({"id":3,"method":"TabService.Rename","params":{"tab":{"id":4,"url":"u","title":"t","muted":true,"tags":[],"meta":{},"opener":null},"title":"T2"}})");
+    PT_CHECK(contains(r, R"("id":4,"url":"u","title":"T2","muted":true)"));
+    r = router.dispatch_sync(R"({"id":4,"method":"TabService.SetMuted","params":{"id":9,"muted":true}})");
+    PT_CHECK(contains(r, R"("status":"error")") && contains(r, "no tab 9"));
+}
+
 // ---- bench core ------------------------------------------------------------------------------------------
 
 void test_bench_tree_and_stats() {
@@ -441,13 +687,16 @@ void run_shim_selftest(boson::core::WebView& webview) {
     ss << in.rdbuf();
     const std::string js = ss.str();
     PT_CHECK(!js.empty());
+    // Positional parameter names from C++ reflection, as boson_tsgen writes them to boson-method-params.ts.
+    const std::string params = boson::ipc::TsGenerator::method_params_json<pt::TabService>();
+    PT_CHECK(eval(webview, "window.__tsgenParams = " + params + ";1").has_value());
     PT_CHECK(eval(webview, js + "\n;1").has_value());
     PT_CHECK(pump_until([&]() { return eval(webview, "window.__compat && window.__compat.done").value_or("") == "true"; }, std::chrono::seconds{30}));
     const std::string failures = eval(webview, "JSON.stringify(window.__compat.failures)").value_or("?");
     const std::string passed = eval(webview, "window.__compat.passed").value_or("0");
     std::cout << "  shim self-test: " << passed << " JS assertions passed, failures: " << failures << "\n";
     PT_CHECK(failures == "\"[]\"");
-    PT_CHECK(std::stoi(passed) == 27); // every expect() in compat_selftest.ts
+    PT_CHECK(std::stoi(passed) == 60); // every expect() in compat_selftest.ts
 }
 
 void test_webview_roundtrip() {
@@ -499,7 +748,9 @@ void test_webview_roundtrip() {
 
         pt::MathController math;
         ElectronIpc ipc;
-        boson::ipc::Router<pt::MathController, ElectronIpc> router(math, ipc);
+        pt::TabService tab_service;
+        pt::FakeWindowController fake_window;
+        boson::ipc::Router<pt::MathController, ElectronIpc, pt::TabService, pt::FakeWindowController> router(math, ipc, tab_service, fake_window);
         auto bridge = std::make_unique<boson::ipc::Bridge>(runner, marshal, router);
         bridge->attach(a);
         bridge->attach(b);
@@ -586,6 +837,7 @@ int main() {
     test_electron_invoke();
     test_electron_send_and_listeners();
     test_sender_context();
+    test_method_params();
     test_bench_tree_and_stats();
     test_bench_live_sampling();
     test_webview_roundtrip();

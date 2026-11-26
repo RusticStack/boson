@@ -193,8 +193,11 @@ std::string dts = boson::ipc::TsGenerator::generate<GreeterController>();
 Build and run `boson_tsgen`:
 
 ```powershell
-.\build\release\boson_tsgen.exe frontend\src\generated\boson-bindings.d.ts
+.\build\release\boson_tsgen.exe frontend\src\generated\boson-bindings.d.ts frontend\src\generated\boson-method-params.ts
 ```
+
+The second (optional) file lists each method's positional parameter names (the request struct's members in
+order); the Wails shim uses it so generated `Service.Method(a, b)` calls need no manual mapping (see PORTING.md).
 
 Then call your backend from TypeScript with full type safety:
 
