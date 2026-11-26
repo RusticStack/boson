@@ -19,5 +19,5 @@
       "@wailsio/runtime": ["../../frontend/src/compat/wails.ts"]
     }
   },
-  "include": ["compat_selftest.ts", "fixtures/**/*.ts"]
+  "include": ["compat_selftest.ts", "terminal_selftest.ts", "fixtures/**/*.ts"]
 }

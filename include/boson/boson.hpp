@@ -86,6 +86,11 @@
 #include <boson/transfer/file_drop.hpp>
 #include <boson/transfer/stream_server.hpp>
 
+#include <boson/terminal/output_channel.hpp>
+#include <boson/terminal/pty.hpp>
+#include <boson/terminal/terminal_host.hpp>
+#include <boson/ipc/controllers/terminal_controller.hpp>
+
 #include <boson/app/lifecycle.hpp>
 
 #include <boson/security/capabilities.hpp>

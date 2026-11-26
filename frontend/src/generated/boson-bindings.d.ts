@@ -714,6 +714,116 @@ export interface RecentDocumentRequest {
     path: string;
 }
 
+export interface TerminalInfoResponse {
+    id: number;
+    pid: number;
+    cols: number;
+    rows: number;
+    running: boolean;
+    exit_code?: number | null;
+    visible: boolean;
+    command_line: string;
+    backend: string;
+    title: string;
+    cwd: string;
+}
+
+export interface TerminalSpawnResponse {
+    terminal: TerminalInfoResponse;
+    channel: string;
+    fast_input: boolean;
+}
+
+export interface TerminalSpawnRequest {
+    command?: string | null;
+    args?: Array<string> | null;
+    command_line?: string | null;
+    cwd?: string | null;
+    env?: Record<string, string> | null;
+    inherit_env?: boolean | null;
+    cols?: number | null;
+    rows?: number | null;
+    visible?: boolean | null;
+    backend?: string | null;
+}
+
+export interface TerminalWriteRequest {
+    id: number;
+    data: string;
+}
+
+export interface TerminalResizeRequest {
+    id: number;
+    cols: number;
+    rows: number;
+}
+
+export interface TerminalKillRequest {
+    id: number;
+    signal?: string | null;
+}
+
+export interface TerminalVisibleRequest {
+    id: number;
+    visible: boolean;
+}
+
+export interface TerminalAckRequest {
+    id: number;
+    bytes: number;
+}
+
+export interface TerminalIdRequest {
+    id: number;
+}
+
+export interface TerminalListResponse {
+    terminals: Array<TerminalInfoResponse>;
+}
+
+export interface TerminalProcessEntry {
+    pid: number;
+    parent_pid: number;
+    name: string;
+}
+
+export interface TerminalProcessResponse {
+    id: number;
+    foreground_pid: number;
+    foreground_name: string;
+    cwd: string;
+    cwd_source: string;
+    processes: Array<TerminalProcessEntry>;
+}
+
+export interface TerminalStatsResponse {
+    bytes_in: number;
+    bytes_sent: number;
+    bytes_acked: number;
+    bytes_dropped: number;
+    chunks_sent: number;
+    pending: number;
+    in_flight: number;
+    max_pending: number;
+    max_in_flight: number;
+    reader_pauses: number;
+    replays: number;
+    sync_holds: number;
+    ring_capacity: number;
+    visible: boolean;
+    reader_paused: boolean;
+}
+
+export interface TerminalCapabilitiesResponse {
+    system_conpty: boolean;
+    bundled_conpty: boolean;
+    default_shell: string;
+    channel: string;
+    fast_input: boolean;
+    ring_bytes: number;
+    window_bytes: number;
+}
+
 export interface TitlebarRect {
     x: number;
     y: number;
@@ -1127,6 +1237,22 @@ export interface StoreChangedEvent_DemoSettings {
     change: StoreChange;
 }
 
+export interface TerminalExitEvent {
+    id: number;
+    exit_code: number;
+    end: number;
+}
+
+export interface TerminalTitleEvent {
+    id: number;
+    title: string;
+}
+
+export interface TerminalCwdEvent {
+    id: number;
+    cwd: string;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1257,6 +1383,19 @@ export interface BosonApi {
     "Taskbar.clear_jump_list": () => Promise<ShellResult>;
     "Taskbar.add_recent_document": (params: RecentDocumentRequest) => Promise<ShellResult>;
     "Taskbar.clear_recent_documents": () => Promise<ShellResult>;
+    "Terminal.spawn": (params: TerminalSpawnRequest) => Promise<TerminalSpawnResponse>;
+    "Terminal.write": (params: TerminalWriteRequest) => Promise<void>;
+    "Terminal.resize": (params: TerminalResizeRequest) => Promise<void>;
+    "Terminal.kill": (params: TerminalKillRequest) => Promise<void>;
+    "Terminal.set_visible": (params: TerminalVisibleRequest) => Promise<void>;
+    "Terminal.ack": (params: TerminalAckRequest) => Promise<void>;
+    "Terminal.replay": (params: TerminalIdRequest) => Promise<void>;
+    "Terminal.dispose": (params: TerminalIdRequest) => Promise<void>;
+    "Terminal.info": (params: TerminalIdRequest) => Promise<TerminalInfoResponse>;
+    "Terminal.list": () => Promise<TerminalListResponse>;
+    "Terminal.processes": (params: TerminalIdRequest) => Promise<TerminalProcessResponse>;
+    "Terminal.stats": (params: TerminalIdRequest) => Promise<TerminalStatsResponse>;
+    "Terminal.capabilities": () => Promise<TerminalCapabilitiesResponse>;
     "Titlebar.set_overlay": (params: TitlebarOverlayRequest) => Promise<TitlebarOverlayEvent>;
     "Titlebar.get_overlay": () => Promise<TitlebarOverlayEvent>;
     "Titlebar.get_theme": () => Promise<ThemeChangedEvent>;
@@ -1318,4 +1457,7 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "terminal:exit": TerminalExitEvent;
+    "terminal:title": TerminalTitleEvent;
+    "terminal:cwd": TerminalCwdEvent;
 }

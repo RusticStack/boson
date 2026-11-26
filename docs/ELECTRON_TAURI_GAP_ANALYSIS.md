@@ -19,6 +19,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | **IPC & Data** | Request / Response RPC | `ipcRenderer.invoke` / `ipcMain.handle` | `invoke()` / `#[tauri::command]` | `Router` + `TaskRunner` (`stdexec`) + `boson_tsgen` |
 | | Backend → Frontend events | `webContents.send` / `ipcRenderer.on` | `app.emit` / `emit_to` / `listen()` | `Bridge::emit` / `emit_to` (any thread) + typed `boson.on` / `once`, origin allow-list |
 | | Navigation & content events | `webContents` events | `on_navigation`, `on_page_load` | Full set: navigation (cancellable), title, history, favicon, new window (deferral), fullscreen, audio, crash, permissions, downloads |
+| | Integrated terminals (PTY) | `node-pty` (native Node addon) | Community plugins (`tauri-plugin-pty`) | `terminal::Pty` (ConPTY, kill-on-close job) + `TerminalHost` (shared-buffer output, ack flow control, hidden-pane replay) + `terminal.ts` / `compat/node_pty.ts` ([TERMINAL.md](TERMINAL.md)) |
 | | Binary payloads & streaming | `MessageChannelMain` / `Buffer` | `ipc::Response` + `ipc::Channel` | `transfer::BinaryTransport` (zero-copy shared buffers, ~2.6 GB/s measured; base64 fallback) + `StreamServer` (HTTP Range, seeking) |
 | **OS Shell** | Native App & Context Menus | `Menu.buildFromTemplate()` / `popup()` | `tauri::menu` (`MenuBuilder`) | `menu::MenuBar` (native bar or HTML-titlebar popups, roles, mnemonics) + `popup_menu` + `Menu.*` JS |
 | | System Tray (menu + click events) | `Tray` + `setContextMenu()` | `TrayIconBuilder` + events | `TrayIcon` (PNG/ICO icons, menu, click events, balloons, Explorer-restart recovery) |
@@ -56,6 +57,7 @@ Done (see the module docs):
 - Menus, tray, accelerators: [MENU.md](MENU.md)
 - Clipboard, shell, global shortcuts, deep links, screen, window state: [DESKTOP.md](DESKTOP.md)
 - File drop, zero-copy binary IPC, Range streaming: [TRANSFER.md](TRANSFER.md)
+- Terminals (ConPTY, flow control, xterm.js wiring, node-pty shim): [TERMINAL.md](TERMINAL.md)
 - Print/PDF, capture, find, cookies, profiles, proxy, auth/certificate events: [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md)
 - Capabilities, CSP, safe storage, credentials, scoped FS: [SECURITY.md](SECURITY.md)
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)

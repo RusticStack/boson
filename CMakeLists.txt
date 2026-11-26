@@ -116,6 +116,9 @@ add_library(boson_core STATIC
     src/transfer/binary_transport.cpp
     src/transfer/file_drop.cpp
     src/transfer/stream_server.cpp
+    src/terminal/pty.cpp
+    src/terminal/output_channel.cpp
+    src/terminal/terminal_host.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -380,3 +383,67 @@ add_executable(boson_transfer_tests
 target_link_libraries(boson_transfer_tests PRIVATE boson_core)
 add_test(NAME boson_transfer_tests COMMAND boson_transfer_tests)
 set_tests_properties(boson_transfer_tests PROPERTIES TIMEOUT 300)
+# Terminals: ConPTY spawn / echo / resize / kill + job cleanup / exit codes / UTF-8, OutputChannel flow control,
+# then TerminalHost + TerminalController in a real WebView2 (hidden-pane replay, 128 MiB throughput benchmark,
+# memory bound) and the terminal.ts / compat/node_pty.ts self-test when bun is available. The executable is
+# also its own child process (--spew, --size, ...). Opens one small non-activated window.
+add_executable(boson_terminal_tests
+    tests/test_terminal.cpp
+)
+target_link_libraries(boson_terminal_tests PRIVATE boson_core psapi)
+if(BOSON_BUN_EXECUTABLE)
+    set(BOSON_TERMINAL_SELFTEST_JS "${CMAKE_BINARY_DIR}/terminal_selftest.js")
+    add_custom_command(
+        OUTPUT "${BOSON_TERMINAL_SELFTEST_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/terminal_selftest.ts"
+                --format=iife "--outfile=${BOSON_TERMINAL_SELFTEST_JS}"
+        DEPENDS
+            tests/js/terminal_selftest.ts
+            frontend/src/boson.ts
+            frontend/src/transfer.ts
+            frontend/src/terminal.ts
+            frontend/src/compat/node_pty.ts
+        COMMENT "Bundling the terminal.ts self-test"
+        VERBATIM)
+    add_custom_target(boson_terminal_selftest_js DEPENDS "${BOSON_TERMINAL_SELFTEST_JS}")
+    add_dependencies(boson_terminal_tests boson_terminal_selftest_js)
+    target_compile_definitions(boson_terminal_tests PRIVATE BOSON_TERMINAL_SELFTEST_JS="${BOSON_TERMINAL_SELFTEST_JS}")
+endif()
+add_test(NAME boson_terminal_tests COMMAND boson_terminal_tests)
+set_tests_properties(boson_terminal_tests PROPERTIES LABELS integration TIMEOUT 600)
+# Terminal demo (examples/terminal_demo): split panes of ConPTY terminals rendered by xterm.js + WebGL. Needs bun
+# and frontend/node_modules (cd frontend && bun install: @xterm/* are devDependencies); skipped otherwise.
+set(BOSON_TERMINAL_DEMO_WEB "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/web")
+set(BOSON_XTERM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend/node_modules/@xterm")
+if(BOSON_BUN_EXECUTABLE AND EXISTS "${BOSON_XTERM_DIR}/xterm/css/xterm.css" AND EXISTS "${BOSON_XTERM_DIR}/addon-webgl")
+    set(_demo_gen "${CMAKE_BINARY_DIR}/generated/terminal_demo")
+    set(_demo_js "${_demo_gen}/app.js")
+    set(_demo_header "${_demo_gen}/terminal_demo_assets.hpp")
+    add_custom_command(
+        OUTPUT "${_demo_header}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${BOSON_TERMINAL_DEMO_WEB}/demo.ts" --format=iife --minify
+                "--outfile=${_demo_js}"
+        COMMAND "${CMAKE_COMMAND}" "-DOUT=${_demo_header}"
+                "-DASSETS=/index.html=${BOSON_TERMINAL_DEMO_WEB}/index.html,/demo.css=${BOSON_TERMINAL_DEMO_WEB}/demo.css,/xterm.css=${BOSON_XTERM_DIR}/xterm/css/xterm.css,/app.js=${_demo_js}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/embed_assets.cmake"
+        DEPENDS
+            examples/terminal_demo/web/demo.ts
+            examples/terminal_demo/web/index.html
+            examples/terminal_demo/web/demo.css
+            examples/terminal_demo/web/tsconfig.json
+            examples/terminal_demo/embed_assets.cmake
+            frontend/src/boson.ts
+            frontend/src/transfer.ts
+            frontend/src/terminal.ts
+        COMMENT "Bundling the terminal demo (xterm.js + WebGL)"
+        VERBATIM)
+    add_custom_target(boson_terminal_demo_assets DEPENDS "${_demo_header}")
+    add_executable(boson_terminal_demo WIN32
+        examples/terminal_demo/main.cpp
+    )
+    add_dependencies(boson_terminal_demo boson_terminal_demo_assets)
+    target_include_directories(boson_terminal_demo PRIVATE "${_demo_gen}")
+    target_link_libraries(boson_terminal_demo PRIVATE boson_core)
+    add_test(NAME boson_terminal_demo_selftest COMMAND boson_terminal_demo --selftest)
+    set_tests_properties(boson_terminal_demo_selftest PROPERTIES LABELS integration TIMEOUT 120)
+endif()

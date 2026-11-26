@@ -438,6 +438,7 @@ Each module has its own guide with API, examples and an honest verification sect
 | Menus, tray, accelerators | [MENU.md](MENU.md) | `Menu` | `menu:click`, `tray:click` |
 | Clipboard, shell, shortcuts, deep links, screen, window state | [DESKTOP.md](DESKTOP.md) | `Clipboard`, `Shell`, `Screen`, `Shortcut` | `clipboard:changed`, `screen:changed`, `shortcut:triggered` |
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
+| Terminals (ConPTY, xterm.js, node-pty shim) | [TERMINAL.md](TERMINAL.md) | `Terminal` | `terminal:exit`, `terminal:title`, `terminal:cwd` |
 | Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
 | Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
 | Persistent settings (`Store<T>`) | [STORE.md](STORE.md) | `Store` (name configurable) | `store:changed` |
