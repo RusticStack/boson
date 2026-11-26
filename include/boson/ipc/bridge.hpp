@@ -27,6 +27,8 @@ struct BridgeAttachOptions {
     /// Capability policy checked before a request reaches the router (null = no method-level checks).
     /// Rejected calls get a -32003 "permission denied" error envelope; see docs/SECURITY.md.
     std::shared_ptr<const security::CapabilityPolicy> capabilities;
+    /// Label of the window hosting the WebView (app::WindowManager fills it in), for emit_to(label, ...).
+    std::string window_label;
 };
 
 /// @brief Connects WebView2 messaging, TaskRunner execution and a type-erased Router, and pushes
@@ -90,10 +92,28 @@ public:
         return emit_json(webview_id, event, data);
     }
 
+    /// @brief Serializes payload with glaze and posts it to every WebView of the window labelled
+    /// window_label (BridgeAttachOptions::window_label / set_window_label). Any thread.
+    template <typename T>
+    bool emit_to(std::string_view window_label, std::string_view event, const T& payload) {
+        std::string data;
+        if (glz::write_json(payload, data)) {
+            return false;
+        }
+        return emit_json_to_window(window_label, event, data);
+    }
+
     bool emit_all(std::string_view event) { return emit_json(kAllWebViews, event, "null"); }
 
     /// @brief Posts an already-serialized JSON payload. Any thread.
     bool emit_json(std::uint64_t webview_id, std::string_view event, std::string_view data_json);
+    /// @brief emit_json to every WebView whose window label is window_label. Any thread.
+    bool emit_json_to_window(std::string_view window_label, std::string_view event, std::string_view data_json);
+
+    /// @brief Sets the window label of an attached WebView (UI thread). false if not attached.
+    bool set_window_label(std::uint64_t webview_id, std::string window_label);
+    /// @brief Window label of an attached WebView, empty when unknown (UI thread).
+    [[nodiscard]] std::string_view window_label_of(std::uint64_t webview_id) const noexcept;
 
     /// @brief true when source_uri's origin is in allowed (case-insensitive; "*" matches anything).
     [[nodiscard]] static bool is_origin_allowed(std::string_view source_uri, std::span<const std::string> allowed);
@@ -106,10 +126,12 @@ private:
         std::uint64_t id = 0;
         std::vector<std::string> allowed_origins;
         std::shared_ptr<const security::CapabilityPolicy> capabilities;
+        std::string window_label;
     };
 
     void on_web_message(std::uint64_t webview_id, std::string_view raw_json, std::string_view source_uri);
     void deliver(std::uint64_t webview_id, std::string_view json) const;
+    void deliver_to_window(std::string_view window_label, std::string_view json) const;
     [[nodiscard]] const Attachment* find(std::uint64_t webview_id) const noexcept;
 
     exec::TaskRunner& m_runner;

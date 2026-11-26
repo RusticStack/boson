@@ -87,6 +87,8 @@
 #include <boson/transfer/stream_server.hpp>
 
 #include <boson/app/lifecycle.hpp>
+#include <boson/app/window_manager.hpp>
+#include <boson/ipc/controllers/window_controller.hpp>
 
 #include <boson/security/capabilities.hpp>
 #include <boson/security/common.hpp>

@@ -435,6 +435,7 @@ Each module has its own guide with API, examples and an honest verification sect
 
 | Module | Guide | Controllers (JS name) | Events |
 |---|---|---|---|
+| Windows by label (multi-window, owned / modal, close veto, state per label) | [WINDOWS.md](WINDOWS.md) | `Window` | `window:created`, `window:closed`, `window:focus`, `window:blur`, `window:moved`, `window:resized`, `window:maximized`, `window:minimized`, `window:restored`, `window:shown`, `window:hidden`, `window:close-requested` |
 | Menus, tray, accelerators | [MENU.md](MENU.md) | `Menu` | `menu:click`, `tray:click` |
 | Clipboard, shell, shortcuts, deep links, screen, window state | [DESKTOP.md](DESKTOP.md) | `Clipboard`, `Shell`, `Screen`, `Shortcut` | `clipboard:changed`, `screen:changed`, `shortcut:triggered` |
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |

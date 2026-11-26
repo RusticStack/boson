@@ -24,6 +24,9 @@ struct Capability {
     std::vector<std::string> allow;
     /// Deny always wins over allow, across all capabilities that match the origin.
     std::vector<std::string> deny;
+    /// Window labels these origins may create through Window.create (app::WindowManager): "settings",
+    /// "workspace-*" (prefix) or "*". Empty = none. Window creation is never granted by default_deny = false.
+    std::vector<std::string> windows;
 };
 
 struct CapabilityConfig {
@@ -74,6 +77,10 @@ public:
     [[nodiscard]] bool is_allowed(std::string_view method, std::string_view source_uri) const noexcept {
         return check(method, source_uri) == PermissionDecision::Allowed;
     }
+    /// @brief true when a capability matching source_uri lists a windows pattern matching label.
+    [[nodiscard]] bool may_create_window(std::string_view label, std::string_view source_uri) const noexcept;
+    /// @brief true when text is a valid window label pattern ("*", "label", "prefix*").
+    [[nodiscard]] static bool is_valid_window_pattern(std::string_view text) noexcept;
 
     [[nodiscard]] bool default_deny() const noexcept { return m_default_deny; }
     [[nodiscard]] const CapabilityConfig& config() const noexcept { return m_config; }
@@ -95,6 +102,7 @@ private:
         std::vector<OriginPattern> origins;
         MethodSet allow;
         MethodSet deny;
+        MethodSet windows;
     };
 
     std::vector<Compiled> m_rules;

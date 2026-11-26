@@ -86,6 +86,32 @@ bool CapabilityPolicy::MethodSet::matches(std::string_view method) const noexcep
     return false;
 }
 
+bool CapabilityPolicy::is_valid_window_pattern(std::string_view text) noexcept {
+    if (text == "*") {
+        return true;
+    }
+    if (text.ends_with('*')) {
+        text.remove_suffix(1);
+    }
+    return !text.empty() && text.size() <= 64 && std::ranges::all_of(text, [](char ch) {
+        return is_identifier_char(ch) || ch == ':' || ch == '/' || ch == '.';
+    });
+}
+
+bool CapabilityPolicy::may_create_window(std::string_view label, std::string_view source_uri) const noexcept {
+    const OriginParts origin = parse_origin(source_uri);
+    for (const auto& rule : m_rules) {
+        bool origin_ok = rule.any_origin;
+        for (std::size_t i = 0; !origin_ok && i < rule.origins.size(); ++i) {
+            origin_ok = rule.origins[i].matches(origin);
+        }
+        if (origin_ok && rule.windows.matches(label)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 SecurityResult<CapabilityPolicy> CapabilityPolicy::compile(CapabilityConfig config) {
     CapabilityPolicy policy;
     policy.m_default_deny = config.default_deny;
@@ -112,8 +138,15 @@ SecurityResult<CapabilityPolicy> CapabilityPolicy::compile(CapabilityConfig conf
             }
             rule.deny.add(pattern);
         }
+        for (const auto& pattern : capability.windows) {
+            if (!is_valid_window_pattern(pattern)) {
+                return std::unexpected(invalid(capability, "window pattern", pattern));
+            }
+            rule.windows.add(pattern);
+        }
         rule.allow.finish();
         rule.deny.finish();
+        rule.windows.finish();
         policy.m_rules.push_back(std::move(rule));
     }
     policy.m_config = std::move(config);

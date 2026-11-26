@@ -1014,6 +1014,111 @@ export interface DrmProbeRequest {
     timeout_ms?: number | null;
 }
 
+export interface WindowInfo {
+    label: string;
+    title: string;
+    url: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale_factor: number;
+    visible: boolean;
+    focused: boolean;
+    enabled: boolean;
+    maximized: boolean;
+    minimized: boolean;
+    fullscreen: boolean;
+    modal: boolean;
+    parent: string;
+    close_guard: boolean;
+    webview_ids: Array<number>;
+}
+
+export interface WindowCreateRequest {
+    label: string;
+    url: string;
+    title: string;
+    width?: number | null;
+    height?: number | null;
+    min_width?: number | null;
+    min_height?: number | null;
+    x?: number | null;
+    y?: number | null;
+    center: boolean;
+    frameless: boolean;
+    headless_titlebar: boolean;
+    backdrop: string;
+    dark_mode?: boolean | null;
+    always_on_top: boolean;
+    skip_taskbar: boolean;
+    transparent: boolean;
+    visible: boolean;
+    focus: boolean;
+    parent: string;
+    modal: boolean;
+    persist_state: boolean;
+    hide_on_close: boolean;
+}
+
+export interface WindowListResponse {
+    windows: Array<WindowInfo>;
+}
+
+export interface WindowLabelRequest {
+    label: string;
+}
+
+export interface WindowShowRequest {
+    label: string;
+    focus: boolean;
+}
+
+export interface WindowNavigateRequest {
+    label: string;
+    url: string;
+}
+
+export interface WindowTitleRequest {
+    label: string;
+    title: string;
+}
+
+export interface WindowBoundsRequest {
+    label: string;
+    x?: number | null;
+    y?: number | null;
+    width?: number | null;
+    height?: number | null;
+}
+
+export interface WindowSizeRequest {
+    label: string;
+    width: number;
+    height: number;
+}
+
+export interface WindowFlagRequest {
+    label: string;
+    enabled: boolean;
+}
+
+export interface WindowOkResponse {
+    ok: boolean;
+}
+
+export interface WindowConfirmCloseRequest {
+    label: string;
+    request_id: number;
+    allow: boolean;
+}
+
+export interface WindowEmitRequest {
+    target: string;
+    event: string;
+    payload: unknown;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -1125,6 +1230,24 @@ export interface StoreChangedEvent_DemoSettings {
     store: string;
     value: DemoSettings;
     change: StoreChange;
+}
+
+export interface WindowLabelEvent {
+    label: string;
+}
+
+export interface WindowBoundsEvent {
+    label: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale_factor: number;
+}
+
+export interface WindowCloseRequestedEvent {
+    label: string;
+    request_id: number;
 }
 
 export interface BosonApi {
@@ -1287,6 +1410,30 @@ export interface BosonApi {
     "WebView.get_profile": () => Promise<ProfileData>;
     "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
     "WebView.probe_drm": (params: DrmProbeRequest) => Promise<DrmProbeResult>;
+    "Window.create": (params: WindowCreateRequest) => Promise<WindowInfo>;
+    "Window.list": () => Promise<WindowListResponse>;
+    "Window.get": (params: WindowLabelRequest) => Promise<WindowInfo>;
+    "Window.current": () => Promise<WindowInfo>;
+    "Window.show": (params: WindowShowRequest) => Promise<void>;
+    "Window.hide": (params: WindowLabelRequest) => Promise<void>;
+    "Window.focus": (params: WindowLabelRequest) => Promise<void>;
+    "Window.close": (params: WindowLabelRequest) => Promise<void>;
+    "Window.destroy": (params: WindowLabelRequest) => Promise<void>;
+    "Window.navigate": (params: WindowNavigateRequest) => Promise<void>;
+    "Window.minimize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.maximize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.unmaximize": (params: WindowLabelRequest) => Promise<void>;
+    "Window.restore": (params: WindowLabelRequest) => Promise<void>;
+    "Window.center": (params: WindowLabelRequest) => Promise<void>;
+    "Window.set_title": (params: WindowTitleRequest) => Promise<void>;
+    "Window.set_bounds": (params: WindowBoundsRequest) => Promise<WindowInfo>;
+    "Window.set_min_size": (params: WindowSizeRequest) => Promise<void>;
+    "Window.set_always_on_top": (params: WindowFlagRequest) => Promise<void>;
+    "Window.set_fullscreen": (params: WindowFlagRequest) => Promise<void>;
+    "Window.set_skip_taskbar": (params: WindowFlagRequest) => Promise<WindowOkResponse>;
+    "Window.set_close_guard": (params: WindowFlagRequest) => Promise<void>;
+    "Window.confirm_close": (params: WindowConfirmCloseRequest) => Promise<WindowOkResponse>;
+    "Window.emit": (params: WindowEmitRequest) => Promise<WindowOkResponse>;
 }
 
 export interface BosonEvents {
@@ -1318,4 +1465,16 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "window:created": WindowLabelEvent;
+    "window:closed": WindowLabelEvent;
+    "window:focus": WindowLabelEvent;
+    "window:blur": WindowLabelEvent;
+    "window:moved": WindowBoundsEvent;
+    "window:resized": WindowBoundsEvent;
+    "window:maximized": WindowLabelEvent;
+    "window:minimized": WindowLabelEvent;
+    "window:restored": WindowLabelEvent;
+    "window:shown": WindowLabelEvent;
+    "window:hidden": WindowLabelEvent;
+    "window:close-requested": WindowCloseRequestedEvent;
 }
