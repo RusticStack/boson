@@ -21,6 +21,7 @@ import { boson, BosonIpcError, type Unsubscribe } from '../boson';
 import { startDrag as nativeStartDrag, type DragResult } from '../dragout';
 import { AppWindow, currentLabel, windows, type WindowInfo } from '../windows';
 import { app as nativeApp, dialog as nativeDialog } from '../native';
+import { spawn as spawnProcess, type ChildProcess as ProcessHandle } from '../process';
 
 export const IPC_EVENT_PREFIX = 'ipc:';
 
@@ -671,8 +672,125 @@ export const systemPreferences = {
 };
 
 
+export interface UtilityProcessForkOptions {
+  env?: Record<string, string>;
+  cwd?: string;
+  /** Node's own flags before the module path. */
+  execArgv?: string[];
+  /** 'pipe' exposes stdout / stderr listeners; 'ignore' (default 'pipe' here, Electron's is 'inherit') discards. */
+  stdio?: 'pipe' | 'ignore';
+  serviceName?: string;
+  /**
+   * Boson addition: the Node binary (Electron runs its own). An absolute path such as the bundled
+   * sidecars/node/node.exe, or a command name the app's ExecutablePolicy lists. Default 'node'.
+   */
+  execPath?: string;
+}
+
+type UtilityEvent = 'spawn' | 'exit' | 'message' | 'error';
+
+/**
+ * Electron utilityProcess child, backed by Process.spawn with a Node fork IPC channel (Process.send /
+ * process:message). In the child, process.send / process.on('message') work as with child_process.fork;
+ * Electron's process.parentPort is not provided (use process.send / process.on('message')).
+ */
+export class UtilityProcess {
+  public pid: number | undefined = undefined;
+  public readonly stdout = { on: (_e: 'data', l: (data: string) => void) => this.addOutput('stdout', l) };
+  public readonly stderr = { on: (_e: 'data', l: (data: string) => void) => this.addOutput('stderr', l) };
+  private listeners = new Map<UtilityEvent, Set<(...args: unknown[]) => void>>();
+  private outputListeners: Array<[string, (data: string) => void]> = [];
+  private readonly ready: Promise<ProcessHandle>;
+
+  constructor(modulePath: string, args: string[], options: UtilityProcessForkOptions) {
+    this.ready = spawnProcess(options.execPath ?? 'node', [...(options.execArgv ?? []), modulePath, ...args], {
+      env: options.env,
+      cwd: options.cwd,
+      stdout: options.stdio === 'ignore' ? 'ignore' : 'pipe',
+      stderr: options.stdio === 'ignore' ? 'ignore' : 'pipe',
+      ipc: true,
+    });
+    this.ready.then(
+      (child) => {
+        this.pid = child.pid;
+        child.onOutput((data, stream) => {
+          for (const [s, l] of this.outputListeners) if (s === stream) l(typeof data === 'string' ? data : new TextDecoder().decode(data));
+        });
+        child.onMessage((message) => this.emit('message', message));
+        void child.exited.then((info) => {
+          this.pid = undefined;
+          this.emit('exit', info.code);
+        });
+        this.emit('spawn');
+      },
+      (err: unknown) => {
+        this.emit('error', 'FatalError', String(err instanceof Error ? err.message : err));
+        this.emit('exit', -1);
+      }
+    );
+  }
+
+  public on(event: UtilityEvent, listener: (...args: any[]) => void): this {
+    let set = this.listeners.get(event);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(event, set);
+    }
+    set.add(listener);
+    return this;
+  }
+
+  public once(event: UtilityEvent, listener: (...args: any[]) => void): this {
+    const wrapped = (...args: unknown[]): void => {
+      this.off(event, wrapped);
+      listener(...args);
+    };
+    return this.on(event, wrapped);
+  }
+
+  public off(event: UtilityEvent, listener: (...args: any[]) => void): this {
+    this.listeners.get(event)?.delete(listener);
+    return this;
+  }
+
+  /** JSON-serializable message to the child (process.on('message') there). */
+  public postMessage(message: unknown): void {
+    void this.ready.then((child) => child.send(message)).catch((err: unknown) => this.emit('error', 'FatalError', String(err)));
+  }
+
+  /** Terminates the child and its descendants. */
+  public kill(): boolean {
+    if (this.pid === undefined) return false;
+    void this.ready.then((child) => child.kill('SIGTERM'));
+    return true;
+  }
+
+  private addOutput(stream: string, listener: (data: string) => void): void {
+    this.outputListeners.push([stream, listener]);
+  }
+
+  private emit(event: UtilityEvent, ...args: unknown[]): void {
+    for (const l of [...(this.listeners.get(event) ?? [])]) {
+      try {
+        l(...args);
+      } catch (err) {
+        console.error('[boson/utilityProcess] listener threw', err);
+      }
+    }
+  }
+}
+
+/** Electron's utilityProcess.fork(modulePath, args, options). */
+export const utilityProcess = {
+  fork(modulePath: string, args: string[] = [], options: UtilityProcessForkOptions = {}): UtilityProcess {
+    return new UtilityProcess(modulePath, args, options);
+  },
+};
+
+/** Drop-in for `import { ipcRenderer, contextBridge, utilityProcess } from 'electron'` via a bundler alias. */
 /** Drop-in for `import { ipcRenderer, contextBridge } from 'electron'` via a bundler alias. */
 export const electron = {
   ipcRenderer, contextBridge, webUtils, webFrame, process, clipboard, startDrag, BrowserWindow, dialog, app, systemPreferences,
+  utilityProcess,
 };
 export default electron;

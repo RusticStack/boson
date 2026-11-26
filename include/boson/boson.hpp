@@ -103,6 +103,13 @@
 #include <boson/app/window_manager.hpp>
 #include <boson/ipc/controllers/window_controller.hpp>
 
+#include <boson/process/command_line.hpp>
+#include <boson/process/pipe_ipc.hpp>
+#include <boson/process/policy.hpp>
+#include <boson/process/process.hpp>
+#include <boson/process/sidecar.hpp>
+#include <boson/ipc/controllers/process_controller.hpp>
+
 #include <boson/security/capabilities.hpp>
 #include <boson/security/common.hpp>
 #include <boson/security/credential_store.hpp>

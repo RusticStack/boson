@@ -14,6 +14,7 @@
 #include <boson/ipc/controllers/native_controller.hpp>
 #include <boson/ipc/controllers/notification_controller.hpp>
 #include <boson/ipc/controllers/power_controller.hpp>
+#include <boson/ipc/controllers/process_controller.hpp>
 #include <boson/ipc/controllers/safe_storage_controller.hpp>
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
@@ -67,7 +68,8 @@ using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents
                                                       boson::ipc::DragEvents,
                                                       boson::ipc::WindowManagerEvents,
                                                       boson::ipc::NativeEvents,
-                                                      boson::ipc::GpuEvents>;
+                                                      boson::ipc::GpuEvents,
+                                                      boson::ipc::ProcessEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -92,6 +94,7 @@ using AllControllers = Outputs<
     boson::ipc::NotificationController,
     boson::ipc::PermissionController,
     boson::ipc::PowerController,
+    boson::ipc::ProcessController,
     boson::ipc::SafeStorageController,
     boson::ipc::ScreenController,
     boson::ipc::ShellController,

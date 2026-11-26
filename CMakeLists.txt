@@ -127,6 +127,12 @@ add_library(boson_core STATIC
     src/transfer/file_drop.cpp
     src/transfer/stream_server.cpp
     src/transfer/drag_out.cpp
+    src/process/command_line.cpp
+    src/process/detail.cpp
+    src/process/process.cpp
+    src/process/pipe_ipc.cpp
+    src/process/policy.cpp
+    src/process/sidecar.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -183,6 +189,7 @@ target_link_libraries(boson_core
         winhttp
         wintrust
         dbghelp
+        ws2_32
 )
 
 # ---- boson_gpu: native GPU surfaces composited with WebView2 (docs/GPU.md) ----------------------------------
@@ -267,6 +274,12 @@ add_executable(boson_native_example WIN32
     examples/native/main.cpp
 )
 target_link_libraries(boson_native_example PRIVATE boson_core)
+
+# boson::process from C++: exec, streaming, a supervised Node sidecar (console).
+add_executable(boson_process_example
+    examples/process/main.cpp
+)
+target_link_libraries(boson_process_example PRIVATE boson_core)
 
 add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
@@ -471,6 +484,15 @@ if(BOSON_SIGNTOOL AND BOSON_PACKAGE_DEMO)
             -AssetScript "${CMAKE_CURRENT_SOURCE_DIR}/cmake/msix/generate_assets.ps1")
     set_tests_properties(boson_signing_test PROPERTIES TIMEOUT 120 LABELS signing)
 endif()
+# Child processes: argv quoting (incl. cmd.exe), pipes, extra handles, jobs (kill tree / kill-on-close), exec,
+# sidecars, named pipes, Node IPC (when node.exe is on PATH) and the Process controller through WebView2 (skips
+# without a runtime). The test executable is also every child process (--child modes).
+add_executable(boson_process_tests
+    tests/test_process.cpp
+)
+target_link_libraries(boson_process_tests PRIVATE boson_core)
+add_test(NAME boson_process_tests COMMAND boson_process_tests)
+set_tests_properties(boson_process_tests PROPERTIES TIMEOUT 300)
 # Persistent settings store: missing / corrupt files, concurrent updates, a crash during save (child
 # process), the Store IPC controller and "store:changed" events. Headless; everything lives in a temp folder.
 add_executable(boson_store_tests

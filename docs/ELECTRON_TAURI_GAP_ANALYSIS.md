@@ -55,6 +55,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Cookies, profiles, clear data, proxy | `session` | Partial | `webview` cookies, named/InPrivate profiles, `clear_browsing_data`, `ProxyConfig` |
 | **Shell** | Taskbar progress / overlay / thumbnail buttons / jump lists | `setProgressBar`, `setOverlayIcon`, `setThumbarButtons`, `setJumpList` | — | `shell::Taskbar`, `set_jump_list` |
 | | Native caption buttons + accessibility | `titleBarOverlay` | — | `titlebar::Titlebar` (drawn caption buttons, Snap Layouts, UIA, system menu, theme events) |
+| **Processes** | Child processes, sidecars, utility processes | `child_process` (Node) + `utilityProcess` | `tauri-plugin-shell` (`Command`, `sidecar`) | `process::ProcessManager` (no-shell argv, IOCP pipes, extra fds, kill-on-close job, kill tree), `Sidecar` (ready checks, backoff restart, graceful stop), named pipes, `Process.*` behind an executable allow-list + `compat/child_process.ts` / `utilityProcess` |
 | **Diagnostics** | Crash reporting & logging | `crashReporter` | Community | `shipping::CrashReporter` (minidumps, WebView2 process failures) + rotating `Logger` |
 | **Porting** | Framework API shims | — | — | `compat/electron.ts`, `compat/tauri.ts`, `compat/wails.ts` + C++ `ElectronIpc` (`sendSync`, `webUtils`, `webFrame` zoom, `process`, sync `clipboard`, `startDrag`) |
 | **Rendering** | Native GPU content in the window | `OffscreenCanvas`/WebGL/WebGPU only (native via addons + separate windows) | — (raw-window-handle + wgpu in a separate surface) | `gpu::Surface`: D3D11/D3D12 flip-model swap chains composited below/above the WebView, `<boson-surface>` layout from HTML, 2D batch renderer with DirectWrite text grid, Vulkan interop, device-lost recovery ([GPU.md](GPU.md)) |
@@ -74,6 +75,7 @@ Done (see the module docs):
 - Capabilities, CSP, safe storage, credentials, scoped FS: [SECURITY.md](SECURITY.md)
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
+- Child processes, sidecars, named pipes, bundled Node: [PROCESS.md](PROCESS.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
 - Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / preferences, session end, close-to-tray: [NATIVE.md](NATIVE.md)
 - Native GPU surfaces, 2D renderer, Vulkan interop: [GPU.md](GPU.md)
