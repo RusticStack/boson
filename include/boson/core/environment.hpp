@@ -127,6 +127,8 @@ public:
         std::chrono::milliseconds exit_timeout = std::chrono::milliseconds{5000});
 
     /// @brief Closes every registered WebView and waits (up to timeout) for the browser process to exit.
+    /// A timeout of 0 does not wait: the controllers are closed, the environment is released and on_done runs
+    /// before shutdown() returns (app::quit() uses that).
     void shutdown(std::function<void()> on_done, std::chrono::milliseconds timeout = std::chrono::milliseconds{3000});
 
     // Called by WebView. Registration is what lets recreate()/shutdown() reach every controller.

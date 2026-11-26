@@ -256,6 +256,12 @@ public:
     [[nodiscard]] exec::CallbackSender<bool> try_suspend();
     bool resume() noexcept;
     [[nodiscard]] std::optional<bool> is_suspended() const noexcept;
+    /// @brief Closes the controller, and with it the page's renderer process, keeping the container, bounds and
+    /// configuration. The page's state is lost. set_visible(true) creates a new controller and reloads the last
+    /// URL (the wake costs a page load instead of TrySuspend's ~15 ms). This is the "memory matters more than wake
+    /// time" tab sleep (SleepPolicy::discard). False when there is no live controller or it is already discarded.
+    bool discard();
+    [[nodiscard]] bool is_discarded() const noexcept { return m_discarded; }
     /// @brief ICoreWebView2_19::put_MemoryUsageTargetLevel. set_visible(true) restores Normal.
     bool set_memory_usage_target(MemoryUsageTarget target) noexcept;
     [[nodiscard]] MemoryUsageTarget memory_usage_target() const noexcept { return m_memory_target; }
@@ -360,6 +366,7 @@ private:
     /// Pushes max(requested, minimized-Low) to the runtime when it differs from what is applied.
     bool apply_memory_target() noexcept;
     std::chrono::steady_clock::time_point m_hidden_since{};
+    bool m_discarded = false;
     std::string m_restore_url;
 
     struct Tokens {

@@ -277,5 +277,8 @@ int WINAPI wWinMain(
         boson::app::quit({environment});
     });
 
-    return boson::core::Window::run_message_loop();
+    // The settings Store saves on every change and the window placement on close (WindowStateKeeper), the
+    // rest is in memory: skip the destructors (thread joins, COM teardown) at the end.
+    boson::app::add_exit_hook([&window_state]() { window_state.save_now(); });
+    boson::app::exit_process(boson::core::Window::run_message_loop());
 }

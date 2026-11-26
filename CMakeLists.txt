@@ -134,6 +134,7 @@ endif()
 option(BOSON_AVX2 "Compile with /arch:AVX2 (needs a 2013+ CPU; the default stays baseline x64)" OFF)
 
 add_library(boson_core STATIC
+    src/core/trace.cpp
     src/core/window.cpp
     src/core/webview.cpp
     src/core/webview_events.cpp
@@ -633,6 +634,14 @@ add_executable(boson_menu_tests
 target_link_libraries(boson_menu_tests PRIVATE boson_core)
 add_test(NAME boson_menu_tests COMMAND boson_menu_tests)
 set_tests_properties(boson_menu_tests PROPERTIES TIMEOUT 180)
+# Lifecycle: exit hooks, lazy scheduler pool, quit() without waiting for the browser process, WebView::discard()
+# and SleepPolicy::discard. Opens one small SW_SHOWNOACTIVATE window; the WebView2 part skips without a runtime.
+add_executable(boson_lifecycle_tests
+    tests/test_lifecycle.cpp
+)
+target_link_libraries(boson_lifecycle_tests PRIVATE boson_core)
+add_test(NAME boson_lifecycle_tests COMMAND boson_lifecycle_tests)
+set_tests_properties(boson_lifecycle_tests PROPERTIES LABELS integration TIMEOUT 240)
 # Window manager: windows by label, owned/modal windows, close veto, state per label, Window controller and
 # emit_to(label). Opens small SW_SHOWNOACTIVATE windows; the WebView2 part skips without a runtime.
 add_executable(boson_window_tests

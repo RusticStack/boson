@@ -5,6 +5,7 @@
 #include <boson/core/inplace_vector.hpp>
 #include <boson/core/protocol.hpp>
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/core/ui_timer.hpp>
 #include <boson/core/webview.hpp>
 #include <boson/core/webview_events.hpp>

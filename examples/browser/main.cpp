@@ -633,7 +633,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
         bridge.emit("window:maximize-button", browser::MaxButtonEvent{.hovered = e.flag});
     });
 
-    host.set_sleep_policy(core::SleepPolicy{});
+    const bool sleep_discard = has(L"--sleep-discard"); // free the renderer of sleeping tabs; they reload on wake
+    host.set_sleep_policy(core::SleepPolicy{.discard = sleep_discard});
+    if (bench_driver) bench_driver->set_sleep_discard(sleep_discard);
     host.set_on_slept([&browser](core::WebView& webview) { browser.on_slept(webview); });
 
     if (start_urls.empty()) start_urls.emplace_back();
@@ -648,5 +650,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev*/, PWSTR /*cmd_line*/, 
         app::quit({environment});
     });
 
-    return core::Window::run_message_loop();
+    // Nothing is buffered in this process: skip the destructors (thread joins, COM teardown) at the end.
+    app::exit_process(core::Window::run_message_loop());
 }
