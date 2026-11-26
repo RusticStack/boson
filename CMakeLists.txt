@@ -100,6 +100,10 @@ add_library(boson_core STATIC
     src/shipping/updater.cpp
     src/shipping/webview2_runtime.cpp
     src/shipping/crash_reporter.cpp
+    src/transfer/base64.cpp
+    src/transfer/binary_transport.cpp
+    src/transfer/file_drop.cpp
+    src/transfer/stream_server.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -320,3 +324,11 @@ if(BOSON_SIGNTOOL AND BOSON_PACKAGE_DEMO)
             -AssetScript "${CMAKE_CURRENT_SOURCE_DIR}/cmake/msix/generate_assets.ps1")
     set_tests_properties(boson_signing_test PROPERTIES TIMEOUT 120 LABELS signing)
 endif()
+# File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
+# the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
+add_executable(boson_transfer_tests
+    tests/test_transfer.cpp
+)
+target_link_libraries(boson_transfer_tests PRIVATE boson_core)
+add_test(NAME boson_transfer_tests COMMAND boson_transfer_tests)
+set_tests_properties(boson_transfer_tests PROPERTIES TIMEOUT 300)
