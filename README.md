@@ -144,7 +144,7 @@ console.log(res.pong, res.timestamp_us);
 
 - [Developer Usage Guide](docs/USAGE.md) — Integrating `boson_core`, defining controllers, wiring `Window`/`WebView`/`Bridge`, generating TypeScript bindings, HMR dev mode, and Release LTO builds.
 - [Electron & Tauri v2 Gap Analysis](docs/ELECTRON_TAURI_GAP_ANALYSIS.md) — Detailed capability matrix comparing Boson against Electron and Tauri v2, plus the roadmap to full parity.
-- Module guides: [Menus & Tray](docs/MENU.md) · [Desktop (clipboard, shell, shortcuts, deep links, screen, window state)](docs/DESKTOP.md) · [Transfer (file drop, binary IPC, streaming)](docs/TRANSFER.md) · [WebView features (print, PDF, find, cookies, profiles)](docs/WEBVIEW_FEATURES.md) · [Security](docs/SECURITY.md) · [Taskbar, toasts & power](docs/SHELL_INTEGRATION.md) · [Shipping (packaging, signing, updater, crashes)](docs/SHIPPING.md) · [Titlebar](docs/TITLEBAR.md)
+- Module guides: [Menus & Tray](docs/MENU.md) · [Desktop (clipboard, shell, shortcuts, deep links, screen, window state)](docs/DESKTOP.md) · [Transfer (file drop, binary IPC, streaming)](docs/TRANSFER.md) · [WebView features (print, PDF, find, cookies, profiles)](docs/WEBVIEW_FEATURES.md) · [Security](docs/SECURITY.md) · [Settings store](docs/STORE.md) · [Taskbar, toasts & power](docs/SHELL_INTEGRATION.md) · [Shipping (packaging, signing, updater, crashes)](docs/SHIPPING.md) · [Titlebar](docs/TITLEBAR.md)
 - [Migrating from Electron, Tauri v2 and Wails v3](docs/MIGRATION.md) · [Porting shims](docs/PORTING.md) · [Benchmarks](docs/BENCHMARKS.md)
 - [Composition & DRM Spike](docs/COMPOSITION_DRM_SPIKE.md) — Composition hosting status, protected-content risks, and a test procedure.
 - [Architecture Plan](PLAN.md) — The 5-phase design blueprint for Boson.

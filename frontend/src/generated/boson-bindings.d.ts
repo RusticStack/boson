@@ -599,6 +599,35 @@ export interface ShortcutListResponse {
     shortcuts: Array<ShortcutInfo>;
 }
 
+export interface DemoSettings {
+    theme: string;
+    search_engine: string;
+    tab_sleep_minutes: number;
+    hardware_acceleration: boolean;
+}
+
+export interface StoreChange {
+    changed: boolean;
+    changed_keys: Array<string>;
+    restart_required: boolean;
+    restart_keys: Array<string>;
+    revision: number;
+    saved: boolean;
+    source: string;
+    sender_webview: number;
+}
+
+export interface StoreInfo {
+    name: string;
+    path: string;
+    load_status: string;
+    revision: number;
+    dirty: boolean;
+    restart_keys: Array<string>;
+    pending_restart_keys: Array<string>;
+    read_only_keys: Array<string>;
+}
+
 export interface TaskbarProgressRequest {
     state: string;
     value?: number | null;
@@ -1033,6 +1062,12 @@ export interface FsChangeBatch {
     closed: boolean;
 }
 
+export interface StoreChangedEvent_DemoSettings {
+    store: string;
+    value: DemoSettings;
+    change: StoreChange;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1145,6 +1180,11 @@ export interface BosonApi {
     "Shortcut.unregister_all": () => Promise<void>;
     "Shortcut.is_registered": (params: ShortcutAcceleratorRequest) => Promise<ShortcutBoolResponse>;
     "Shortcut.list": () => Promise<ShortcutListResponse>;
+    "Store.get": () => Promise<DemoSettings>;
+    "Store.set": (params: DemoSettings) => Promise<StoreChange>;
+    "Store.patch": (params: Partial<DemoSettings>) => Promise<StoreChange>;
+    "Store.reset": () => Promise<StoreChange>;
+    "Store.info": () => Promise<StoreInfo>;
     "Taskbar.set_progress": (params: TaskbarProgressRequest) => Promise<ShellResult>;
     "Taskbar.clear_progress": () => Promise<ShellResult>;
     "Taskbar.set_overlay": (params: TaskbarOverlayRequest) => Promise<ShellResult>;
@@ -1217,4 +1257,5 @@ export interface BosonEvents {
     "updater:error": UpdateResultEvent;
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
+    "store:changed": StoreChangedEvent_DemoSettings;
 }
