@@ -16,6 +16,7 @@
 #include "boson/ipc/export.hpp"
 #include "boson/ipc/protocol_types.hpp"
 #include "boson/ipc/router.hpp"
+#include "boson/security/capabilities.hpp"
 
 namespace boson::ipc {
 
@@ -23,6 +24,9 @@ struct BridgeAttachOptions {
     /// Origins (scheme://host[:port]) allowed to call the bridge. Empty = boson://app plus the origin of the
     /// WebView's dev_url. "*" allows every origin (never do that for third-party content).
     std::vector<std::string> allowed_origins;
+    /// Capability policy checked before a request reaches the router (null = no method-level checks).
+    /// Rejected calls get a -32003 "permission denied" error envelope; see docs/SECURITY.md.
+    std::shared_ptr<const security::CapabilityPolicy> capabilities;
 };
 
 /// @brief Connects WebView2 messaging, TaskRunner execution and a type-erased Router, and pushes
@@ -64,6 +68,8 @@ public:
     void attach(core::WebView& webview, BridgeAttachOptions options = {});
     void detach(core::WebView& webview) noexcept;
     [[nodiscard]] bool is_attached(std::uint64_t webview_id) const noexcept;
+    /// @brief Replaces the capability policy of an attached WebView (UI thread). false if not attached.
+    bool set_capabilities(std::uint64_t webview_id, std::shared_ptr<const security::CapabilityPolicy> policy) noexcept;
 
     /// @brief Kept for the single-WebView form: forwards to the first attached WebView.
     [[nodiscard]] core::WebView::MessageCallback make_message_callback();
@@ -99,6 +105,7 @@ private:
         core::WebView* webview = nullptr;
         std::uint64_t id = 0;
         std::vector<std::string> allowed_origins;
+        std::shared_ptr<const security::CapabilityPolicy> capabilities;
     };
 
     void on_web_message(std::uint64_t webview_id, std::string_view raw_json, std::string_view source_uri);

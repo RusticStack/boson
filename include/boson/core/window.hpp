@@ -42,6 +42,9 @@ struct WindowConfig {
     bool quit_on_destroy = true;
     HWND owner = nullptr;
     int titlebar_height = 0;
+    /// Headless windows keep the invisible left/right/bottom resize borders non-client (like a native
+    /// Windows 11 frame), so they stay usable above WebView HWNDs. Ignored for layered (Translucent) windows.
+    bool native_resize_borders = true;
     BackdropType backdrop = BackdropType::None;
     CornerPreference corner_preference = CornerPreference::Round;
     float opacity = 1.0f;
@@ -171,6 +174,7 @@ private:
     void apply_backdrop() noexcept;
     void apply_borderless_frame() const noexcept;
     LRESULT handle_nccalcsize(WPARAM w_param, LPARAM l_param) const noexcept;
+    [[nodiscard]] bool uses_native_resize_borders() const noexcept;
     LRESULT handle_nchittest(LPARAM l_param);
     LRESULT resize_border_hit(POINT screen_pt) const noexcept;
     bool point_in_max_button(POINT screen_pt) const noexcept;

@@ -62,6 +62,21 @@ void ProtocolHandler::set_lookup(AssetLookupFn lookup) {
     m_lookup = std::move(lookup);
 }
 
+void ProtocolHandler::set_extra_headers(std::string_view headers) {
+    m_extra_headers.clear();
+    while (headers.starts_with("\r\n")) {
+        headers.remove_prefix(2);
+    }
+    while (headers.ends_with("\r\n")) {
+        headers.remove_suffix(2);
+    }
+    if (!headers.empty()) {
+        m_extra_headers.reserve(headers.size() + 2);
+        m_extra_headers.append("\r\n");
+        m_extra_headers.append(headers);
+    }
+}
+
 std::string_view ProtocolHandler::mime_type_for(std::string_view path) noexcept {
     if (const auto query_pos = path.find_first_of("?#"); query_pos != std::string_view::npos) {
         path = path.substr(0, query_pos);
@@ -122,11 +137,13 @@ HRESULT ProtocolHandler::handle_request(
 
     ComPtr<ICoreWebView2WebResourceResponse> response;
     if (!asset_bytes.has_value()) {
+        const std::wstring not_found_headers =
+            L"Content-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *" + utf8_to_wide(m_extra_headers);
         hr = env->CreateWebResourceResponse(
             nullptr,
             404,
             L"Not Found",
-            L"Content-Type: text/plain; charset=utf-8\r\nAccess-Control-Allow-Origin: *",
+            not_found_headers.c_str(),
             &response);
         if (!hr_check(hr, "CreateWebResourceResponse (404)")) {
             return hr;
@@ -147,6 +164,7 @@ HRESULT ProtocolHandler::handle_request(
     std::string headers_utf8 = "Content-Type: ";
     headers_utf8.append(mime);
     headers_utf8.append("\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-cache");
+    headers_utf8.append(m_extra_headers);
     const std::wstring headers_wide = utf8_to_wide(headers_utf8);
 
     hr = env->CreateWebResourceResponse(

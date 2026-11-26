@@ -1,6 +1,7 @@
 #include "boson/ipc/bridge.hpp"
 
 #include <boson/core/result.hpp>
+#include <boson/ipc/request_context.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -78,7 +79,12 @@ bool Bridge::is_origin_allowed(std::string_view source_uri, std::span<const std:
 }
 
 void Bridge::attach(core::WebView& webview, BridgeAttachOptions options) {
-    Attachment attachment{.webview = &webview, .id = webview.id(), .allowed_origins = std::move(options.allowed_origins)};
+    Attachment attachment{
+        .webview = &webview,
+        .id = webview.id(),
+        .allowed_origins = std::move(options.allowed_origins),
+        .capabilities = std::move(options.capabilities),
+    };
     if (attachment.allowed_origins.empty()) {
         attachment.allowed_origins.emplace_back("boson://app");
         if (const auto& dev = webview.config().dev_url; dev.has_value()) {
@@ -109,6 +115,15 @@ bool Bridge::is_attached(std::uint64_t webview_id) const noexcept {
     return find(webview_id) != nullptr;
 }
 
+bool Bridge::set_capabilities(std::uint64_t webview_id, std::shared_ptr<const security::CapabilityPolicy> policy) noexcept {
+    const auto it = std::ranges::find(m_attachments, webview_id, &Attachment::id);
+    if (it == m_attachments.end()) {
+        return false;
+    }
+    it->capabilities = std::move(policy);
+    return true;
+}
+
 const Bridge::Attachment* Bridge::find(std::uint64_t webview_id) const noexcept {
     const auto it = std::ranges::find(m_attachments, webview_id, &Attachment::id);
     return it == m_attachments.end() ? nullptr : &*it;
@@ -133,6 +148,20 @@ void Bridge::on_web_message(std::uint64_t webview_id, std::string_view raw_json,
         core::hr_check(E_ACCESSDENIED, "Bridge: dropped IPC message from untrusted origin");
         return;
     }
+    if (attachment->capabilities) {
+        // Allocation-free header peek + compiled policy lookup; params are never parsed for a denied call.
+        const auto header = security::peek_rpc_header(raw_json);
+        const security::PermissionDecision decision = header.has_value()
+            ? attachment->capabilities->check(header->method, source_uri)
+            : security::PermissionDecision::Malformed;
+        if (decision != security::PermissionDecision::Allowed) {
+            core::hr_check(E_ACCESSDENIED, "Bridge: IPC call rejected by capability policy");
+            deliver(webview_id, security::make_permission_denied_envelope(
+                header.has_value() ? header->id : 0, header.has_value() ? header->method : std::string_view{}, decision));
+            return;
+        }
+    }
+    const SenderScope sender_scope{webview_id}; // Router carries it to the pool thread
     m_dispatch_fn(raw_json, [this, alive = m_alive, webview_id](std::string response) {
         if (*alive) {
             deliver(webview_id, response);

@@ -96,6 +96,14 @@ int WINAPI wWinMain(
     HINSTANCE /*prev_instance*/,
     PWSTR /*cmd_line*/,
     int show_cmd) {
+    // When started as the install helper of boson::shipping::Updater, do that job and exit.
+    if (const auto helper_exit = boson::shipping::Updater::run_helper_if_requested()) {
+        return *helper_exit;
+    }
+    // Minidumps of crashes go to %LOCALAPPDATA%\Boson Demo\crashes (nothing is uploaded).
+    boson::shipping::CrashReporter crash_reporter({.app_name = L"Boson Demo", .app_version = "0.1.0"});
+    crash_reporter.install();
+
     // A relaunch() must not race the previous process for the WebView2 user data folder.
     boson::app::wait_for_previous_instance();
 
@@ -129,10 +137,14 @@ int WINAPI wWinMain(
     window_cfg.dark_mode = true;
 
     boson::core::Window window(std::move(window_cfg));
-    if (!window.create(instance, show_cmd)) {
+    if (!window.create(instance, SW_HIDE)) {
         return 1;
     }
     window_ptr = &window;
+
+    // Reopen where the user left the window (saved to %LOCALAPPDATA%\Boson.Demo on move/resize/close).
+    boson::desktop::WindowStateKeeper window_state(window, {.app_name = L"Boson.Demo"});
+    window_state.restore(show_cmd);
 
     boson::exec::Scheduler scheduler;
     boson::exec::UiMarshal marshal([&window]() {
@@ -156,20 +168,35 @@ int WINAPI wWinMain(
     webview_cfg.transparent_background = window.is_transparent_backdrop();
     webview_cfg.settings.non_client_region_support_enabled = true;
 
+    // Window menu on right-click / Alt+Space (also inside the WebView), Alt+F4, top-edge resizing and
+    // "theme:changed" / "titlebar:overlay" events for the HTML titlebar.
+    boson::titlebar::Titlebar titlebar(window);
+    boson::core::WebView* webview_ptr = nullptr;
     boson::core::WebView& webview = host.create(
         std::move(webview_cfg),
         boson::core::WebViewCallbacks{
             .asset_lookup = [](std::string_view path) { return boson::assets::AssetRegistry::find(path); },
+            .on_ready = [&titlebar, &webview_ptr]() {
+                if (webview_ptr != nullptr) {
+                    titlebar.attach_webview(*webview_ptr);
+                }
+            },
         });
+    webview_ptr = &webview;
+
+    crash_reporter.attach_webview(webview); // logs render / GPU process failures
 
     boson::ipc::SystemController system_controller(window, webview, marshal);
     boson::demo::AppController app_controller;
-    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController> router(
+    boson::ipc::TitlebarController titlebar_controller(window, webview, marshal, titlebar);
+    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController, boson::ipc::TitlebarController> router(
         system_controller,
-        app_controller);
+        app_controller,
+        titlebar_controller);
 
     boson::ipc::Bridge bridge(runner, marshal, router);
     bridge.attach(webview);
+    boson::ipc::connect_titlebar_events(titlebar, bridge);
 
     // ---- Backend -> frontend events ---------------------------------------------------------------------
     const auto emit_window_state = [&window, &bridge](bool focused) {

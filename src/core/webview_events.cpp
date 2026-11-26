@@ -1,6 +1,9 @@
 #include <boson/core/webview.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/webview/security_events.hpp>
+
+#include <algorithm>
 
 namespace boson::core {
 
@@ -247,6 +250,20 @@ void WebView::register_event_handlers() {
                 if (!live() || !m_env) {
                     return S_OK;
                 }
+                if (!m_resource_handlers.empty()) {
+                    ComPtr<ICoreWebView2WebResourceRequest> request;
+                    wchar_t* raw_uri = nullptr;
+                    if (args != nullptr && SUCCEEDED(args->get_Request(&request)) && request &&
+                        SUCCEEDED(request->get_Uri(&raw_uri))) {
+                        const std::string uri = take_string(S_OK, raw_uri, "WebResourceRequest::get_Uri");
+                        if (dispatch_resource_request(args, uri)) {
+                            return S_OK;
+                        }
+                        if (!m_config.serve_boson_assets || !uri.starts_with("boson://app")) {
+                            return S_OK;
+                        }
+                    }
+                }
                 return m_protocol.handle_request(m_env->get(), args);
             })
             .Get(),
@@ -255,7 +272,7 @@ void WebView::register_event_handlers() {
     BOSON_HR_CHECK(m_webview->add_WebMessageReceived(
         Callback<ICoreWebView2WebMessageReceivedEventHandler>(
             [this, live](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                if (!live() || args == nullptr || !m_on_message) {
+                if (!live() || args == nullptr || (!m_on_message && m_message_observers.empty())) {
                     return S_OK;
                 }
                 wchar_t* raw_json = nullptr;
@@ -264,7 +281,14 @@ void WebView::register_event_handlers() {
                 wchar_t* raw_source = nullptr;
                 const HRESULT src_hr = args->get_Source(&raw_source);
                 const std::string source = take_string(src_hr, raw_source, "WebMessageReceived::get_Source");
-                if (!json.empty()) {
+                if (json.empty()) {
+                    return S_OK;
+                }
+                if (!m_message_observers.empty() &&
+                    dispatch_web_message(WebMessage{.json = json, .source_uri = source, .args = args})) {
+                    return S_OK;
+                }
+                if (m_on_message) {
                     m_on_message(json, source);
                 }
                 return S_OK;
@@ -510,6 +534,9 @@ void WebView::register_event_handlers() {
             &m_tokens.favicon));
     }
 
+    webview::detail::register_security_event_handlers(
+        *this, live, m_tokens.basic_auth, m_tokens.client_certificate, m_tokens.server_certificate);
+
     if (m_composition_controller) {
         BOSON_HR_CHECK(m_composition_controller->add_CursorChanged(
             Callback<ICoreWebView2CursorChangedEventHandler>(
@@ -536,6 +563,86 @@ void WebView::register_event_handlers() {
                 &m_tokens.non_client));
         }
     }
+}
+
+WebView::HookId WebView::add_web_message_observer(WebMessageObserver observer) {
+    const HookId id = m_next_hook_id++;
+    m_message_observers.push_back(MessageObserverEntry{.id = id, .fn = std::move(observer)});
+    return id;
+}
+
+bool WebView::remove_web_message_observer(HookId id) noexcept {
+    const auto it = std::ranges::find(m_message_observers, id, &MessageObserverEntry::id);
+    if (it == m_message_observers.end()) {
+        return false;
+    }
+    if (m_hook_dispatch_depth > 0) {
+        it->fn = nullptr; // compacted once dispatch unwinds
+        it->id = 0;
+    } else {
+        m_message_observers.erase(it);
+    }
+    return true;
+}
+
+WebView::HookId WebView::add_resource_handler(std::wstring uri_filter, ResourceRequestHandler handler) {
+    const HookId id = m_next_hook_id++;
+    if (m_webview != nullptr) {
+        BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(uri_filter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+    }
+    m_resource_handlers.push_back(ResourceHandlerEntry{.id = id, .filter = std::move(uri_filter), .fn = std::move(handler)});
+    return id;
+}
+
+bool WebView::remove_resource_handler(HookId id) noexcept {
+    const auto it = std::ranges::find(m_resource_handlers, id, &ResourceHandlerEntry::id);
+    if (it == m_resource_handlers.end()) {
+        return false;
+    }
+    const bool filter_shared = std::ranges::count(m_resource_handlers, it->filter, &ResourceHandlerEntry::filter) > 1;
+    const bool boson_filter = m_config.serve_boson_assets && it->filter == L"boson://app/*";
+    if (m_webview != nullptr && !filter_shared && !boson_filter) {
+        BOSON_HR_CHECK(m_webview->RemoveWebResourceRequestedFilter(it->filter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+    }
+    if (m_hook_dispatch_depth > 0) {
+        it->fn = nullptr;
+        it->id = 0;
+        it->filter.clear();
+    } else {
+        m_resource_handlers.erase(it);
+    }
+    return true;
+}
+
+bool WebView::dispatch_web_message(const WebMessage& message) {
+    bool consumed = false;
+    ++m_hook_dispatch_depth;
+    // Index loop: observers may be added (appended) or removed (tombstoned) from inside a callback.
+    for (std::size_t i = 0; i < m_message_observers.size() && !consumed; ++i) {
+        if (m_message_observers[i].fn) {
+            const WebMessageObserver fn = m_message_observers[i].fn;
+            consumed = fn(message);
+        }
+    }
+    if (--m_hook_dispatch_depth == 0) {
+        std::erase_if(m_message_observers, [](const MessageObserverEntry& e) { return e.id == 0; });
+    }
+    return consumed;
+}
+
+bool WebView::dispatch_resource_request(ICoreWebView2WebResourceRequestedEventArgs* args, std::string_view uri) {
+    bool handled = false;
+    ++m_hook_dispatch_depth;
+    for (std::size_t i = 0; i < m_resource_handlers.size() && !handled; ++i) {
+        if (m_resource_handlers[i].fn) {
+            const ResourceRequestHandler fn = m_resource_handlers[i].fn;
+            handled = fn(uri, args);
+        }
+    }
+    if (--m_hook_dispatch_depth == 0) {
+        std::erase_if(m_resource_handlers, [](const ResourceHandlerEntry& e) { return e.id == 0; });
+    }
+    return handled;
 }
 
 void WebView::unregister_event_handlers() noexcept {
@@ -574,6 +681,8 @@ void WebView::unregister_event_handlers() noexcept {
             remove(m_tokens.favicon, [&webview15](EventRegistrationToken t) { webview15->remove_FaviconChanged(t); });
         }
     }
+    webview::detail::unregister_security_event_handlers(
+        m_webview.Get(), m_tokens.basic_auth, m_tokens.client_certificate, m_tokens.server_certificate);
     if (m_composition_controller != nullptr) {
         if (m_tokens.cursor.value != 0) {
             m_composition_controller->remove_CursorChanged(m_tokens.cursor);

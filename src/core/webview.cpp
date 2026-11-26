@@ -2,6 +2,7 @@
 
 #include <boson/core/composition.hpp>
 #include <boson/core/result.hpp>
+#include <boson/webview/profile.hpp>
 
 #include <algorithm>
 
@@ -120,6 +121,7 @@ bool WebView::initialize(
 
     m_parent = parent;
     m_protocol.set_lookup(std::move(asset_lookup));
+    m_protocol.set_extra_headers(m_config.asset_response_headers);
     if (on_message) {
         m_on_message = std::move(on_message);
     }
@@ -242,14 +244,22 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
     const std::shared_ptr<std::atomic<bool>> alive = m_alive;
     const std::uint64_t generation = m_env->generation();
 
+    // Named profile / InPrivate / script locale go through ICoreWebView2Environment10.
+    ComPtr<ICoreWebView2Environment10> env10;
+    const ComPtr<ICoreWebView2ControllerOptions> options = webview::create_controller_options(env, m_config);
+    if (webview::wants_controller_options(m_config) &&
+        (!options || !BOSON_HR_CHECK(env->QueryInterface(IID_PPV_ARGS(&env10))))) {
+        m_creating = false;
+        return;
+    }
+
     if (m_config.hosting == HostingMode::Composition) {
         ComPtr<ICoreWebView2Environment3> env3;
         if (!BOSON_HR_CHECK(env->QueryInterface(IID_PPV_ARGS(&env3))) || !env3) {
             m_creating = false;
             return;
         }
-        const HRESULT hr = env3->CreateCoreWebView2CompositionController(
-            m_parent,
+        const auto handler =
             Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
                 [this, alive, generation](HRESULT result, ICoreWebView2CompositionController* composition) -> HRESULT {
                     if (!alive->load(std::memory_order_acquire)) {
@@ -273,16 +283,16 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                     }
                     on_controller_created(result, controller.Get());
                     return S_OK;
-                })
-                .Get());
+                });
+        const HRESULT hr = env10 ? env10->CreateCoreWebView2CompositionControllerWithOptions(m_parent, options.Get(), handler.Get())
+                                 : env3->CreateCoreWebView2CompositionController(m_parent, handler.Get());
         if (!BOSON_HR_CHECK(hr)) {
             m_creating = false;
         }
         return;
     }
 
-    const HRESULT hr = env->CreateCoreWebView2Controller(
-        m_container,
+    const auto handler =
         Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
             [this, alive, generation](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
                 if (!alive->load(std::memory_order_acquire)) {
@@ -298,8 +308,9 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                 }
                 on_controller_created(result, controller);
                 return S_OK;
-            })
-            .Get());
+            });
+    const HRESULT hr = env10 ? env10->CreateCoreWebView2ControllerWithOptions(m_container, options.Get(), handler.Get())
+                             : env->CreateCoreWebView2Controller(m_container, handler.Get());
     if (!BOSON_HR_CHECK(hr)) {
         m_creating = false;
     }
@@ -356,6 +367,12 @@ void WebView::configure_new_controller() {
 
     if (m_config.serve_boson_assets) {
         BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(L"boson://app/*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+    }
+
+    for (const auto& handler : m_resource_handlers) {
+        if (handler.id != 0) {
+            BOSON_HR_CHECK(m_webview->AddWebResourceRequestedFilter(handler.filter.c_str(), COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL));
+        }
     }
 
     for (const auto& script : m_config.scripts_on_document_created) {
@@ -504,6 +521,17 @@ void WebView::apply_visibility() noexcept {
 void WebView::raise_caption_overlay() const noexcept {
     if (m_parent == nullptr) {
         return;
+    }
+    // Boson's own overlay children (caption buttons, resize grip) are tagged BosonKeepOnTop; raise them from
+    // the bottom up so their relative order is preserved, then the Snap Layouts overlay on top.
+    std::vector<HWND> keep_on_top;
+    for (HWND child = GetWindow(m_parent, GW_CHILD); child != nullptr; child = GetWindow(child, GW_HWNDNEXT)) {
+        if (GetPropW(child, L"BosonKeepOnTop") != nullptr) {
+            keep_on_top.push_back(child);
+        }
+    }
+    for (auto it = keep_on_top.rbegin(); it != keep_on_top.rend(); ++it) {
+        SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     if (auto* overlay = static_cast<HWND>(GetPropW(m_parent, kCaptionOverlayProp)); overlay != nullptr) {
         SetWindowPos(overlay, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
