@@ -1,6 +1,7 @@
 #include "boson/ipc/bridge.hpp"
 
 #include <boson/core/result.hpp>
+#include <boson/ipc/request_context.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -133,6 +134,7 @@ void Bridge::on_web_message(std::uint64_t webview_id, std::string_view raw_json,
         core::hr_check(E_ACCESSDENIED, "Bridge: dropped IPC message from untrusted origin");
         return;
     }
+    const SenderScope sender_scope{webview_id}; // Router carries it to the pool thread
     m_dispatch_fn(raw_json, [this, alive = m_alive, webview_id](std::string response) {
         if (*alive) {
             deliver(webview_id, response);

@@ -60,6 +60,7 @@ add_library(boson_core STATIC
     src/shell/toast_activation.cpp
     src/shell/power.cpp
     src/shell/auto_launch.cpp
+    src/compat/electron_ipc.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -120,6 +121,17 @@ add_executable(boson_browser WIN32
 )
 target_link_libraries(boson_browser PRIVATE boson_core)
 
+add_executable(boson_bench_app WIN32
+    examples/bench_app/main.cpp
+)
+target_link_libraries(boson_bench_app PRIVATE boson_core)
+
+# Process-tree benchmark harness (any framework's executable).
+add_executable(boson_bench
+    tools/bench/main.cpp
+)
+target_link_libraries(boson_bench PRIVATE boson_core)
+
 add_executable(boson_tsgen
     tools/tsgen/main.cpp
 )
@@ -148,3 +160,30 @@ add_executable(boson_shell_integration_tests
 target_link_libraries(boson_shell_integration_tests PRIVATE boson_core)
 add_test(NAME boson_shell_integration_tests COMMAND boson_shell_integration_tests)
 set_tests_properties(boson_shell_integration_tests PROPERTIES LABELS integration TIMEOUT 180)
+add_executable(boson_porting_tests
+    tests/test_porting.cpp
+)
+target_include_directories(boson_porting_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/tools/bench")
+target_link_libraries(boson_porting_tests PRIVATE boson_core)
+add_test(NAME boson_porting_tests COMMAND boson_porting_tests)
+# Bundles the TypeScript compat-shim self-test (tests/js/compat_selftest.ts) when bun is available; the test
+# skips that part otherwise.
+find_program(BOSON_BUN_EXECUTABLE bun)
+if(BOSON_BUN_EXECUTABLE)
+    set(BOSON_PORTING_SHIM_JS "${CMAKE_BINARY_DIR}/porting_shims_selftest.js")
+    add_custom_command(
+        OUTPUT "${BOSON_PORTING_SHIM_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/compat_selftest.ts"
+                --format=iife "--outfile=${BOSON_PORTING_SHIM_JS}"
+        DEPENDS
+            tests/js/compat_selftest.ts
+            frontend/src/boson.ts
+            frontend/src/compat/electron.ts
+            frontend/src/compat/tauri.ts
+            frontend/src/compat/wails.ts
+        COMMENT "Bundling the compat shim self-test"
+        VERBATIM)
+    add_custom_target(boson_porting_shim_js DEPENDS "${BOSON_PORTING_SHIM_JS}")
+    add_dependencies(boson_porting_tests boson_porting_shim_js)
+    target_compile_definitions(boson_porting_tests PRIVATE BOSON_PORTING_SHIM_JS="${BOSON_PORTING_SHIM_JS}")
+endif()

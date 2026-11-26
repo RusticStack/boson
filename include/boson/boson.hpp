@@ -19,6 +19,7 @@
 #include <boson/ipc/bridge.hpp>
 #include <boson/ipc/export.hpp>
 #include <boson/ipc/protocol_types.hpp>
+#include <boson/ipc/request_context.hpp>
 #include <boson/ipc/router.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
@@ -44,3 +45,5 @@
 #include <boson/app/lifecycle.hpp>
 
 #include <boson/assets/asset_registry.hpp>
+
+#include <boson/compat/electron_ipc.hpp>
