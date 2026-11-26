@@ -186,6 +186,16 @@ export interface CredentialListResponse {
     keys: Array<string>;
 }
 
+export interface DragStartResponse {
+    drag_id: number;
+}
+
+export interface DragStartRequest {
+    files: Array<string>;
+    icon: string;
+    effects: Array<string>;
+}
+
 export interface FsTextResponse {
     text: string;
 }
@@ -626,6 +636,22 @@ export interface StoreInfo {
     restart_keys: Array<string>;
     pending_restart_keys: Array<string>;
     read_only_keys: Array<string>;
+}
+
+export interface ZoomFactorResponse {
+    value: number;
+}
+
+export interface ZoomFactorRequest {
+    value: number;
+}
+
+export interface FilePathsResponse {
+    paths: Array<string>;
+}
+
+export interface FilePathsRequest {
+    token: number;
 }
 
 export interface TaskbarProgressRequest {
@@ -1127,6 +1153,13 @@ export interface StoreChangedEvent_DemoSettings {
     change: StoreChange;
 }
 
+export interface DragEndedEvent {
+    drag_id: number;
+    started: boolean;
+    effect: string;
+    error: string;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1176,6 +1209,7 @@ export interface BosonApi {
     "Credential.get": (params: CredentialKeyRequest) => Promise<CredentialGetResponse>;
     "Credential.remove": (params: CredentialKeyRequest) => Promise<CredentialRemoveResponse>;
     "Credential.list": () => Promise<CredentialListResponse>;
+    "Drag.start": (params: DragStartRequest) => Promise<DragStartResponse>;
     "Fs.read_text": (params: FsPathRequest) => Promise<FsTextResponse>;
     "Fs.read_bytes": (params: FsPathRequest) => Promise<FsBytesResponse>;
     "Fs.write_text": (params: FsWriteTextRequest) => Promise<void>;
@@ -1244,6 +1278,9 @@ export interface BosonApi {
     "Store.patch": (params: Partial<DemoSettings>) => Promise<StoreChange>;
     "Store.reset": () => Promise<StoreChange>;
     "Store.info": () => Promise<StoreInfo>;
+    "SyncHost.zoom_factor": () => Promise<ZoomFactorResponse>;
+    "SyncHost.set_zoom_factor": (params: ZoomFactorRequest) => Promise<void>;
+    "SyncHost.file_paths": (params: FilePathsRequest) => Promise<FilePathsResponse>;
     "Taskbar.set_progress": (params: TaskbarProgressRequest) => Promise<ShellResult>;
     "Taskbar.clear_progress": () => Promise<ShellResult>;
     "Taskbar.set_overlay": (params: TaskbarOverlayRequest) => Promise<ShellResult>;
@@ -1318,4 +1355,5 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "drag:ended": DragEndedEvent;
 }

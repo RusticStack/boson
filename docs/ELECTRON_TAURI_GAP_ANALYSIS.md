@@ -18,6 +18,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Display / Monitor DPI & bounds | `screen` module | `availableMonitors()` / `scaleFactor` | `desktop` screen API (`displays`, `display_nearest_*`, work area, scale, refresh rate) + `screen:changed` |
 | **IPC & Data** | Request / Response RPC | `ipcRenderer.invoke` / `ipcMain.handle` | `invoke()` / `#[tauri::command]` | `Router` + `TaskRunner` (`stdexec`) + `boson_tsgen` |
 | | Backend → Frontend events | `webContents.send` / `ipcRenderer.on` | `app.emit` / `emit_to` / `listen()` | `Bridge::emit` / `emit_to` (any thread) + typed `boson.on` / `once`, origin allow-list |
+| | Synchronous IPC | `ipcRenderer.sendSync` / `event.returnValue` | — (async only) | `ipc::SyncBridge` (IDispatch host object, `boson.invokeSync`, ~0.1 ms round trip, handler on the UI thread, allow-list + CapabilityPolicy) + `ipc::BootValues` (frozen `__BOSON_BOOT__`, no IPC) — [SYNC_IPC.md](SYNC_IPC.md) |
 | | Navigation & content events | `webContents` events | `on_navigation`, `on_page_load` | Full set: navigation (cancellable), title, history, favicon, new window (deferral), fullscreen, audio, crash, permissions, downloads |
 | | Binary payloads & streaming | `MessageChannelMain` / `Buffer` | `ipc::Response` + `ipc::Channel` | `transfer::BinaryTransport` (zero-copy shared buffers, ~2.6 GB/s measured; base64 fallback) + `StreamServer` (HTTP Range, seeking) |
 | **OS Shell** | Native App & Context Menus | `Menu.buildFromTemplate()` / `popup()` | `tauri::menu` (`MenuBuilder`) | `menu::MenuBar` (native bar or HTML-titlebar popups, roles, mnemonics) + `popup_menu` + `Menu.*` JS |
@@ -28,6 +29,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Single-Instance Lock | `requestSingleInstanceLock()` | `tauri-plugin-single-instance` | `app::single_instance` (argv + cwd forwarding) |
 | | Relaunch / graceful quit | `app.relaunch()` / `app.quit()` | `tauri-plugin-process` | `app::relaunch` (`--boson-wait-pid`), `app::quit` waits for the browser process |
 | | Native File Drag-and-Drop | `webUtils.getPathForFile()` | `onDragDropEvent` (`paths[]`) | `transfer::FileDrop` (real paths from WebView drops and non-WebView areas) |
+| | Native file drag-out | `webContents.startDrag({file, icon})` | `tauri-plugin-drag` (community) | `transfer::DragOut` (shell IDataObject: Shell IDList Array + CF_HDROP + drag image, `SHDoDragDrop`) + `Drag` controller + `dragout.ts` — [SYNC_IPC.md](SYNC_IPC.md) |
 | | Power / Idle / Sleep Inhibit | `powerMonitor` + `powerSaveBlocker` | Community / Win32 `SetThreadExecutionState` | `shell::PowerMonitor` (suspend/resume, AC/battery, display, lock) + `PowerSaveBlocker` |
 | | Shell `openExternal` / `showItemInFolder` | `shell` module | `tauri-plugin-opener` + `shell` | `desktop` shell (`open_external` with scheme allow-list, `show_item_in_folder`, `move_to_trash`, known folders) |
 | | Auto-Launch on Login | `app.setLoginItemSettings()` | `tauri-plugin-autostart` | `shell` auto-launch (HKCU Run + StartupApproved state) |
@@ -44,7 +46,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | **Shell** | Taskbar progress / overlay / thumbnail buttons / jump lists | `setProgressBar`, `setOverlayIcon`, `setThumbarButtons`, `setJumpList` | — | `shell::Taskbar`, `set_jump_list` |
 | | Native caption buttons + accessibility | `titleBarOverlay` | — | `titlebar::Titlebar` (drawn caption buttons, Snap Layouts, UIA, system menu, theme events) |
 | **Diagnostics** | Crash reporting & logging | `crashReporter` | Community | `shipping::CrashReporter` (minidumps, WebView2 process failures) + rotating `Logger` |
-| **Porting** | Framework API shims | — | — | `compat/electron.ts`, `compat/tauri.ts`, `compat/wails.ts` + C++ `ElectronIpc` |
+| **Porting** | Framework API shims | — | — | `compat/electron.ts`, `compat/tauri.ts`, `compat/wails.ts` + C++ `ElectronIpc` (`sendSync`, `webUtils`, `webFrame` zoom, `process`, sync `clipboard`, `startDrag`) |
 | **Platforms** | OS Support | Windows, macOS, Linux | Windows, macOS, Linux (+ Mobile) | Windows 10/11 only (macOS/Linux intentionally out of scope for now) |
 
 ---

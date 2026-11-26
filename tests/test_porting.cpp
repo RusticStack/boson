@@ -206,7 +206,74 @@ private:
     std::vector<std::string> m_calls;
 };
 
+/// Same "Clipboard" method names and request/response types as boson::ipc::ClipboardController, backed by
+/// memory, so the Electron clipboard shim is tested without touching the real (shared) clipboard.
+class FakeClipboardController {
+public:
+    BOSON_CONTROLLER("Clipboard");
+
+    [[nodiscard]] boson::ipc::ClipboardTextResponse read_text() const {
+        const std::scoped_lock lock(m_mutex);
+        return boson::ipc::ClipboardTextResponse{.text = m_text};
+    }
+    void write_text(boson::ipc::ClipboardTextRequest req) {
+        const std::scoped_lock lock(m_mutex);
+        m_text = std::move(req.text);
+        m_html.reset();
+    }
+    [[nodiscard]] boson::ipc::ClipboardHtmlResponse read_html() const {
+        const std::scoped_lock lock(m_mutex);
+        if (!m_html) {
+            return {};
+        }
+        return boson::ipc::ClipboardHtmlResponse{.available = true, .html = *m_html, .fragment = *m_html, .source_url = {}};
+    }
+    void write_html(boson::ipc::ClipboardHtmlRequest req) {
+        const std::scoped_lock lock(m_mutex);
+        m_html = std::move(req.html);
+        m_text = std::move(req.text);
+    }
+    void clear() {
+        const std::scoped_lock lock(m_mutex);
+        m_text.reset();
+        m_html.reset();
+    }
+    [[nodiscard]] boson::ipc::ClipboardFormatsResponse formats() const {
+        const std::scoped_lock lock(m_mutex);
+        boson::ipc::ClipboardFormatsResponse out;
+        if (m_text) {
+            out.formats.push_back({.id = CF_UNICODETEXT, .name = "CF_UNICODETEXT"});
+        }
+        if (m_html) {
+            out.formats.push_back({.id = 0xC000, .name = "HTML Format"});
+        }
+        return out;
+    }
+    [[nodiscard]] boson::ipc::ClipboardBoolResponse has(boson::ipc::ClipboardHasRequest req) const {
+        const std::scoped_lock lock(m_mutex);
+        return boson::ipc::ClipboardBoolResponse{.value = (req.format == "text" && m_text.has_value()) || (req.format == "html" && m_html.has_value())};
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::optional<std::string> m_text;
+    std::optional<std::string> m_html;
+};
+
 } // namespace pt
+
+template <>
+struct glz::meta<pt::FakeClipboardController> {
+    using T = pt::FakeClipboardController;
+    static constexpr auto value = glz::object(
+        "read_text", &T::read_text,
+        "write_text", &T::write_text,
+        "read_html", &T::read_html,
+        "write_html", &T::write_html,
+        "clear", &T::clear,
+        "formats", &T::formats,
+        "has", &T::has);
+};
 
 template <>
 struct glz::meta<pt::MathController> {
@@ -671,6 +738,9 @@ const std::string kPage =
     "if(window.chrome&&chrome.webview){chrome.webview.addEventListener('message',e=>{const d=e.data;"
     "if(d&&d.type==='event'){window.__events.push(d);}else{window.__responses.push(d);}});}</script></head><body>P</body></html>";
 
+/// Number of expect() calls in tests/js/compat_selftest.ts.
+constexpr int kShimExpectations = 78;
+
 /// Runs the bundled TypeScript shim self-test (tests/js/compat_selftest.ts) in webview when it was built.
 void run_shim_selftest(boson::core::WebView& webview) {
     step("Electron / Tauri / Wails TypeScript shims in the WebView");
@@ -698,7 +768,7 @@ void run_shim_selftest(boson::core::WebView& webview) {
     const std::string passed = eval(webview, "window.__compat.passed").value_or("0");
     std::cout << "  shim self-test: " << passed << " JS assertions passed, failures: " << failures << "\n";
     PT_CHECK(failures == "\"[]\"");
-    PT_CHECK(std::stoi(passed) == 60); // every expect() in compat_selftest.ts
+    PT_CHECK(std::stoi(passed) == kShimExpectations); // every expect() in compat_selftest.ts
 }
 
 void test_webview_roundtrip() {
@@ -736,9 +806,17 @@ void test_webview_roundtrip() {
             }
             return std::nullopt;
         });
+        // Boot values for the Electron shim's sendSync fast path and process stub (compat_selftest.ts).
+        boson::ipc::BootValues boot;
+        PT_CHECK(boot.set_json("config", R"({"theme":"dark"})"));
+        PT_CHECK(boot.set_send_sync_json("boot-channel", R"({"answer":42,"list":[1,2]})"));
+        PT_CHECK(boot.set_process_info("1.0.0-test"));
+        boson::core::WebViewConfig cfg_a;
+        cfg_a.scripts_on_document_created.push_back(boot.wide_script());
+
         bool a_nav = false;
         bool b_nav = false;
-        boson::core::WebView& a = host->create(boson::core::WebViewConfig{});
+        boson::core::WebView& a = host->create(std::move(cfg_a));
         boson::core::WebView& b = host->create(boson::core::WebViewConfig{});
         a.events().on_navigation_completed = [&](const boson::core::NavigationCompletedEvent& e) { a_nav = e.is_success; };
         b.events().on_navigation_completed = [&](const boson::core::NavigationCompletedEvent& e) { b_nav = e.is_success; };
@@ -752,11 +830,31 @@ void test_webview_roundtrip() {
         ElectronIpc ipc;
         pt::TabService tab_service;
         pt::FakeWindowController fake_window;
-        boson::ipc::Router<pt::MathController, ElectronIpc, pt::TabService, pt::FakeWindowController> router(math, ipc, tab_service, fake_window);
+        pt::FakeClipboardController fake_clipboard;
+        boson::transfer::DragOut drag(marshal, window->hwnd());
+        boson::ipc::DragController drag_controller(drag, nullptr);
+        boson::ipc::Router<pt::MathController, ElectronIpc, pt::TabService, pt::FakeWindowController, pt::FakeClipboardController,
+                           boson::ipc::DragController>
+            router(math, ipc, tab_service, fake_window, fake_clipboard, drag_controller);
         auto bridge = std::make_unique<boson::ipc::Bridge>(runner, marshal, router);
         bridge->attach(a);
         bridge->attach(b);
         ipc.set_bridge(bridge.get());
+        drag_controller.set_bridge(bridge.get());
+        // Synchronous path for ipcRenderer.sendSync / webFrame / webUtils / clipboard (ElectronIpc.sendSync and
+        // SyncHost.* are enabled by their controllers; the rest by pattern).
+        auto sync = std::make_unique<boson::ipc::SyncBridge>(router, std::vector<std::string>{"Math.add", "Clipboard.*"});
+        PT_CHECK(sync->attach(a));
+        ipc.handle_sync("sync-sum", [](const IpcEvent&, Json args) {
+            double total = 0;
+            for (const auto& v : args.get_array()) {
+                total += v.get_number();
+            }
+            return Json(total);
+        });
+        ipc.handle_sync("sync-fail", [](const IpcEvent&, Json) -> Json { throw std::runtime_error("sync exploded"); });
+        const std::filesystem::path drag_file = user_data.parent_path() / (L"boson-porting-drag-" + std::to_wstring(::GetCurrentProcessId()) + L".txt");
+        std::ofstream(drag_file) << "drag me";
 
         std::atomic<std::uint64_t> handler_sender{0};
         ipc.handle("whoami", [&](const IpcEvent& e, Json args) {
@@ -815,7 +913,14 @@ void test_webview_roundtrip() {
         PT_CHECK(emitted_seen && emitted.is_object() && emitted["v"].get_number() == 3.0);
         PT_CHECK(contains(eval(a, "JSON.stringify(window.__events[2])").value_or(""), "ui:changed"));
 
+        std::string drag_file_json;
+        PT_CHECK(!glz::write_json(boson::core::wide_to_utf8(drag_file.wstring()), drag_file_json));
+        PT_CHECK(eval(a, "window.__dragFile = " + drag_file_json + "; window.__mouseDown = " +
+                             (boson::transfer::DragOut::is_mouse_button_down() ? "true" : "false") + ";1").has_value());
         run_shim_selftest(a);
+        sync.reset();
+        std::error_code drag_ec;
+        std::filesystem::remove(drag_file, drag_ec);
 
         bool shut_down = false;
         env->shutdown([&]() { shut_down = true; });

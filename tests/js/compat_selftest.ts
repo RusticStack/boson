@@ -1,9 +1,18 @@
 // Runs inside a real WebView2 page in boson_porting_tests (bundled with bun build --format=iife).
 // Exercises the Electron / Tauri v2 / Wails v3 shims against the C++ ElectronIpc + Math controllers, and the
 // generated Wails bindings fixture against pt::TabService / pt::FakeWindowController.
-import { ipcRenderer, contextBridge } from '../../frontend/src/compat/electron';
+import {
+  ipcRenderer,
+  contextBridge,
+  webUtils,
+  webFrame,
+  process as electronProcess,
+  installProcessGlobal,
+  clipboard,
+  startDrag,
+} from '../../frontend/src/compat/electron';
 import * as tauri from '../../frontend/src/compat/tauri';
-import { boson } from '../../frontend/src/boson';
+import { boson, BosonIpcError } from '../../frontend/src/boson';
 import {
   Application,
   Call,
@@ -79,13 +88,58 @@ async function electron(): Promise<void> {
   ipcRenderer.on('x', () => {});
   ipcRenderer.removeAllListeners();
   expect(ipcRenderer.eventNames().length === 0, 'electron removeAllListeners');
-  let threw = false;
-  try { ipcRenderer.sendSync('nope'); } catch { threw = true; }
-  expect(threw, 'electron sendSync throws');
 
   contextBridge.exposeInMainWorld('portingApi', { version: 1 });
   const api = (window as unknown as { portingApi: { version: number } }).portingApi;
   expect(api.version === 1 && Object.isFrozen(api), 'contextBridge.exposeInMainWorld');
+}
+
+/** Part 2: sendSync, boot values, webFrame, webUtils, process, clipboard, startDrag (SyncBridge attached). */
+async function electronSync(): Promise<void> {
+  expect(boson.isSyncAvailable(), 'boson.isSyncAvailable with a SyncBridge');
+  expect(boson.invokeSync<{ sum: number }, { a: number; b: number }>('Math.add', { a: 2, b: 2 }).sum === 4, 'boson.invokeSync');
+  let notSync = 0;
+  try { boson.invokeSync('TabService.Version'); } catch (e) { notSync = (e as BosonIpcError).code; }
+  expect(notSync === -32005, 'boson.invokeSync of a method not enabled for sync rejects with -32005');
+
+  expect(ipcRenderer.sendSync('sync-sum', 1, 2, 3.5) === 6.5, 'electron sendSync via ElectronIpc::handle_sync');
+  const fromBoot = ipcRenderer.sendSync('boot-channel') as { answer: number; list: number[] };
+  expect(fromBoot.answer === 42 && fromBoot.list.length === 2 && !Object.isFrozen(fromBoot), 'electron sendSync boot fast path returns a copy');
+  expect(boson.boot<{ theme: string }>('config')?.theme === 'dark' && Object.isFrozen(boson.bootValues()), 'boson.boot values');
+  let syncError = '';
+  try { ipcRenderer.sendSync('sync-fail'); } catch (e) { syncError = (e as Error).message; }
+  expect(syncError.includes('sync exploded'), 'electron sendSync handler exception becomes a thrown BosonIpcError');
+  let noHandler = false;
+  try { ipcRenderer.sendSync('no-such-sync', 1); } catch { noHandler = true; }
+  expect(noHandler, 'electron sendSync without a sync handler throws');
+
+  webFrame.setZoomFactor(1.5);
+  expect(Math.abs(webFrame.getZoomFactor() - 1.5) < 1e-6, 'webFrame set/getZoomFactor');
+  webFrame.setZoomLevel(0);
+  expect(Math.abs(webFrame.getZoomLevel()) < 1e-6 && Math.abs(webFrame.getZoomFactor() - 1) < 1e-6, 'webFrame zoom level');
+
+  expect(webUtils.getPathForFile(new File(['x'], 'mem.txt')) === '', 'webUtils.getPathForFile of an in-memory File is empty');
+
+  expect(electronProcess.platform === 'win32' && electronProcess.versions.app === '1.0.0-test', 'process stub from boot values');
+  expect(typeof electronProcess.versions.chrome === 'string' && electronProcess.type === 'renderer', 'process versions / type');
+  installProcessGlobal();
+  expect((window as unknown as { process: unknown }).process === electronProcess, 'installProcessGlobal');
+
+  clipboard.writeText('h\u00e9llo');
+  expect(clipboard.readText() === 'h\u00e9llo' && clipboard.has('text'), 'clipboard text round trip (sync)');
+  clipboard.writeHTML('<b>x</b>');
+  expect(clipboard.readHTML() === '<b>x</b>' && clipboard.availableFormats().includes('HTML Format'), 'clipboard html');
+  clipboard.clear();
+  expect(clipboard.readText() === '' && clipboard.availableFormats().length === 0, 'clipboard clear');
+
+  const dragFile = (window as unknown as { __dragFile: string }).__dragFile;
+  const mouseDown = (window as unknown as { __mouseDown: boolean }).__mouseDown;
+  let dragError = '';
+  await startDrag({ file: dragFile }).catch((e: Error) => { dragError = e.message; });
+  expect(mouseDown || dragError.includes('no mouse button is down'), 'startDrag reaches DragOut and reports drag:ended');
+  let badDrag = '';
+  await startDrag({ file: 'relative.txt' }).catch((e: Error) => { badDrag = e.message; });
+  expect(badDrag.includes('not an absolute path'), 'startDrag validates paths');
 }
 
 async function tauriShim(): Promise<void> {
@@ -240,6 +294,7 @@ async function wailsGenerated(): Promise<void> {
 (async () => {
   try {
     await electron();
+    await electronSync();
     await tauriShim();
     await wails();
     await wailsGenerated();
