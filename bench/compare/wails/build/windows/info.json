@@ -1,0 +1,16 @@
+{
+	"fixed": {
+		"file_version": "1.0.0",
+		"product_version": "1.0.0"
+	},
+	"info": {
+		"0409": {
+			"FileVersion": "1.0.0",
+			"ProductVersion": "1.0.0",
+			"CompanyName": "Boson",
+			"FileDescription": "Wails v3 reference app of the Boson comparison suite",
+			"LegalCopyright": "MIT",
+			"ProductName": "wails_compare"
+		}
+	}
+}
