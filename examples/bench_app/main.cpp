@@ -114,6 +114,7 @@ public:
     void ready() {
         LARGE_INTEGER now{};
         ::QueryPerformanceCounter(&now);
+        trace::mark("page.first_frame");
         if (m_ready_sent.exchange(true)) {
             return;
         }
@@ -261,5 +262,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE /*prev_instance*/, PWSTR /*cmd
         boson::app::quit({environment});
     });
 
-    return boson::core::Window::run_message_loop();
+    // No durable state to flush: skip the destructors (thread joins, COM teardown) at the end.
+    boson::app::exit_process(boson::core::Window::run_message_loop());
 }

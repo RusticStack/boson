@@ -1,6 +1,7 @@
 #include <boson/core/window.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/titlebar/caption_accessibility.hpp>
 #include <boson/titlebar/window_chrome.hpp>
 
@@ -102,6 +103,7 @@ void Window::destroy() noexcept {
 }
 
 bool Window::create(HINSTANCE instance, int show_cmd) {
+    trace::mark("window.create.begin");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     const HINSTANCE h_inst = instance != nullptr ? instance : GetModuleHandleW(nullptr);
@@ -155,8 +157,10 @@ bool Window::create(HINSTANCE instance, int show_cmd) {
         apply_borderless_frame();
     }
 
+    trace::mark("window.create.styled");
     ShowWindow(m_hwnd, show_cmd);
     UpdateWindow(m_hwnd);
+    trace::mark("window.create.shown");
     return true;
 }
 
@@ -165,6 +169,7 @@ int Window::run_message_loop() {
     while (true) {
         const BOOL res = GetMessageW(&msg, nullptr, 0, 0);
         if (res <= 0) {
+            trace::mark("message_loop.exit");
             break;
         }
         TranslateMessage(&msg);
@@ -848,6 +853,7 @@ LRESULT Window::handle_message(UINT msg, WPARAM w_param, LPARAM l_param) {
         return 0;
 
     case WM_CLOSE: {
+        trace::mark("window.wm_close");
         WindowEvent event{.kind = WindowEventKind::CloseRequested, .dpi = dpi()};
         emit(event);
         if (!event.cancel) {

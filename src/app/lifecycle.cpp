@@ -1,10 +1,12 @@
 #include <boson/app/lifecycle.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 
 #include <shellapi.h>
 
 #include <memory>
+#include <mutex>
 
 namespace boson::app {
 
@@ -163,6 +165,7 @@ bool wait_for_previous_instance(std::chrono::milliseconds timeout) {
 }
 
 void quit(std::vector<std::shared_ptr<core::Environment>> envs, std::chrono::milliseconds timeout, int exit_code) {
+    trace::mark("quit.begin");
     std::erase(envs, nullptr);
     if (envs.empty()) {
         PostQuitMessage(exit_code);
@@ -173,11 +176,49 @@ void quit(std::vector<std::shared_ptr<core::Environment>> envs, std::chrono::mil
         env->shutdown(
             [remaining, exit_code]() {
                 if (--*remaining == 0) {
+                    trace::mark("quit.post_quit_message");
                     PostQuitMessage(exit_code);
                 }
             },
             timeout);
     }
+}
+
+namespace {
+
+std::mutex g_exit_hooks_mutex;
+std::vector<std::function<void()>> g_exit_hooks;
+
+} // namespace
+
+void add_exit_hook(std::function<void()> hook) {
+    if (!hook) {
+        return;
+    }
+    const std::scoped_lock lock(g_exit_hooks_mutex);
+    g_exit_hooks.push_back(std::move(hook));
+}
+
+void run_exit_hooks() noexcept {
+    std::vector<std::function<void()>> hooks;
+    {
+        const std::scoped_lock lock(g_exit_hooks_mutex);
+        hooks.swap(g_exit_hooks);
+    }
+    for (auto it = hooks.rbegin(); it != hooks.rend(); ++it) {
+        try {
+            (*it)();
+        } catch (...) {
+            core::hr_check(E_FAIL, "exit hook threw");
+        }
+    }
+}
+
+void exit_process(int exit_code) {
+    trace::mark("exit_process");
+    run_exit_hooks();
+    trace::flush();
+    ExitProcess(static_cast<UINT>(exit_code));
 }
 
 bool relaunch(RelaunchOptions options, std::vector<std::shared_ptr<core::Environment>> envs) {

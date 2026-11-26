@@ -311,3 +311,19 @@ boson_bench --compare bench-results\boson_bench_app.json bench-results\electron.
   on Windows 10, on a quiet machine, at a DPI other than this machine's, and installer sizes (no NSIS/WiX).
 - The window probe measures window geometry, not presentation: a content HWND in place does not prove its pixels
   were composed in the same frame.
+
+## Lifecycle: start-up and shutdown (measured 2026-11-26, Release + LTO)
+
+Details, method and rejected ideas: [PERFORMANCE.md](PERFORMANCE.md#startup-shutdown-and-lifecycle). `BOSON_TRACE` (see there)
+prints a per-process timeline of the start-up and shutdown path. Shutdown is WM_CLOSE -> every process of the tree exited
+(`boson_bench`, quiet machine, A/B interleaved), before = `app::quit` waiting for the browser process, after = not waiting:
+
+| App | Shutdown before (ms, median [min-max]) | after |
+|---|---:|---:|
+| boson_bench_app (10 runs) | 325 [310-341] | 171 [160-260] |
+| boson_demo (8 runs) | 326 [278-341] | 201 [171-245] |
+| boson_browser, 10 tabs (scenario, 5 runs) | 447 [382-484] | 304 [243-336] |
+
+Start-up is unchanged within noise: first window ~20 ms, first frame ~315-340 ms, of which ~25 ms is Boson and the rest the
+WebView2 runtime starting its processes. Sleeping tabs with `SleepPolicy::discard` (opt-in; 10 tabs, 9 asleep): whole-tree
+private WS 223 -> 168 MB, 17 -> 8 processes, wake 20 -> 70 ms (`boson_browser --sleep-discard`).

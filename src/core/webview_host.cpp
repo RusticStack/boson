@@ -264,6 +264,12 @@ void WebViewHost::check_sleep_now() {
             continue;
         }
         m_sleeping.push_back(SleepingEntry{.id = id, .hidden_since = webview.hidden_since()});
+        if (m_sleep_policy->discard) {
+            if (webview.discard() && m_on_slept) {
+                m_on_slept(webview);
+            }
+            continue;
+        }
         if (m_sleep_policy->lower_memory_target) {
             webview.set_memory_usage_target(MemoryUsageTarget::Low);
         }

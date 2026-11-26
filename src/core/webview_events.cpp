@@ -1,6 +1,7 @@
 #include <boson/core/webview.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/webview/security_events.hpp>
 
 #include <algorithm>
@@ -349,6 +350,7 @@ void WebView::register_event_handlers() {
     BOSON_HR_CHECK(m_webview->add_NavigationStarting(
         Callback<ICoreWebView2NavigationStartingEventHandler>(
             [this, live](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                trace::mark("webview.nav_starting");
                 if (!live() || args == nullptr || !m_events.on_navigation_starting) {
                     return S_OK;
                 }
@@ -377,6 +379,7 @@ void WebView::register_event_handlers() {
     BOSON_HR_CHECK(m_webview->add_NavigationCompleted(
         Callback<ICoreWebView2NavigationCompletedEventHandler>(
             [this, live](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                trace::mark("webview.nav_completed");
                 if (!live() || args == nullptr || !m_events.on_navigation_completed) {
                     return S_OK;
                 }

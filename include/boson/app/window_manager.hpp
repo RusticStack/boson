@@ -280,7 +280,7 @@ public:
     /// @brief Destroys every window (force) without running the last-window action.
     void destroy_all();
     /// @brief destroy_all() then app::quit({environment}, timeout, exit_code).
-    void quit(int exit_code = 0, std::chrono::milliseconds timeout = std::chrono::seconds{3});
+    void quit(int exit_code = 0, std::chrono::milliseconds timeout = std::chrono::milliseconds{0});
     [[nodiscard]] bool is_quitting() const noexcept { return m_quitting; }
     void set_quit_on_last_window_closed(bool enabled) noexcept { m_options.quit_on_last_window_closed = enabled; }
     void set_on_last_window_closed(std::function<void()> fn) { m_options.on_last_window_closed = std::move(fn); }

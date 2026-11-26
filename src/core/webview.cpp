@@ -2,6 +2,7 @@
 
 #include <boson/core/composition.hpp>
 #include <boson/core/result.hpp>
+#include <boson/core/trace.hpp>
 #include <boson/webview/profile.hpp>
 
 #include <algorithm>
@@ -241,6 +242,7 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
         SetEnvironmentVariableW(L"WEBVIEW2_DEFAULT_BACKGROUND_COLOR", L"0");
     }
 
+    trace::mark("webview.controller.call");
     const std::shared_ptr<std::atomic<bool>> alive = m_alive;
     const std::uint64_t generation = m_env->generation();
 
@@ -288,6 +290,8 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                                  : env3->CreateCoreWebView2CompositionController(m_parent, handler.Get());
         if (!BOSON_HR_CHECK(hr)) {
             m_creating = false;
+        } else if (m_config.serve_boson_assets) {
+            ProtocolHandler::warm_up(env);
         }
         return;
     }
@@ -313,11 +317,16 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                              : env->CreateCoreWebView2Controller(m_container, handler.Get());
     if (!BOSON_HR_CHECK(hr)) {
         m_creating = false;
+        return;
+    }
+    if (m_config.serve_boson_assets) {
+        ProtocolHandler::warm_up(env); // the browser needs ~200 ms to start; the UI thread is idle until then
     }
 }
 
 void WebView::on_controller_created(HRESULT result, ICoreWebView2Controller* controller) {
     m_creating = false;
+    trace::mark("webview.controller.created");
     if (!hr_check(result, "CreateCoreWebView2Controller callback") || controller == nullptr) {
         m_composition_controller.Reset();
         return;
@@ -335,7 +344,9 @@ void WebView::on_controller_created(HRESULT result, ICoreWebView2Controller* con
     }
 
     configure_new_controller();
+    trace::mark("webview.configured");
     register_event_handlers();
+    trace::mark("webview.events_registered");
 
     if (!m_restore_url.empty()) {
         navigate(m_restore_url);
@@ -422,7 +433,7 @@ void WebView::detach_from_environment() noexcept {
 }
 
 void WebView::reattach_to_environment() {
-    if (m_closed || m_creating || m_controller != nullptr || !m_env) {
+    if (m_closed || m_discarded || m_creating || m_controller != nullptr || !m_env) {
         return;
     }
     m_creating = true;
@@ -494,6 +505,10 @@ void WebView::set_visible(bool visible) noexcept {
         m_hidden_since = std::chrono::steady_clock::now();
     }
     m_visible = visible;
+    if (visible && m_discarded) {
+        m_discarded = false;
+        reattach_to_environment();
+    }
     if (visible && m_memory_target != MemoryUsageTarget::Normal) {
         set_memory_usage_target(MemoryUsageTarget::Normal);
     }
@@ -608,6 +623,7 @@ bool WebView::navigate(std::string_view url) const {
     if (wide.empty()) {
         return false;
     }
+    trace::mark("webview.navigate");
     return BOSON_HR_CHECK(m_webview->Navigate(wide.c_str()));
 }
 
@@ -940,6 +956,15 @@ exec::CallbackSender<bool> WebView::try_suspend() {
             }
         },
         "ICoreWebView2_3::TrySuspend");
+}
+
+bool WebView::discard() {
+    if (m_closed || m_discarded || m_controller == nullptr) {
+        return false;
+    }
+    detach_from_environment(); // remembers the URL, drops the event handlers, closes the controller
+    m_discarded = true;
+    return true;
 }
 
 bool WebView::resume() noexcept {

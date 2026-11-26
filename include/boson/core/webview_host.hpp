@@ -37,6 +37,10 @@ struct SleepPolicy {
     std::chrono::milliseconds check_interval{std::chrono::seconds{30}};
     bool lower_memory_target = true;
     bool suspend = true;
+    /// Memory over wake time: close the sleeping WebView's controller (WebView::discard()) instead of
+    /// suspending it. The renderer process is freed completely; waking reloads the page and loses its state
+    /// (what Wails does for a hidden window). lower_memory_target and suspend are ignored.
+    bool discard = false;
 };
 
 struct WebViewCallbacks {
