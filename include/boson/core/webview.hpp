@@ -24,6 +24,33 @@
 namespace boson::core {
 
 class CompositionHost;
+class WebView;
+
+/// @brief Batches the child-window moves of several windowed WebViews (same parent) into one
+/// BeginDeferWindowPos / EndDeferWindowPos pass, then applies each controller's bounds. One batch per layout
+/// frame instead of one SetWindowPos per WebView. Not thread-safe (UI thread only).
+class BoundsBatch {
+public:
+    explicit BoundsBatch(std::size_t expected = 8);
+    ~BoundsBatch();
+
+    BoundsBatch(const BoundsBatch&) = delete;
+    BoundsBatch& operator=(const BoundsBatch&) = delete;
+
+    /// @brief Applies everything staged so far. Idempotent; the destructor calls it.
+    void commit() noexcept;
+
+private:
+    friend class WebView;
+
+    /// @brief Stages a container move; false when the caller must apply it immediately (other parent, API failure).
+    bool stage(WebView& webview, HWND container, HWND parent, const RECT& rect) noexcept;
+
+    std::size_t m_expected;
+    HWND m_parent = nullptr;
+    HDWP m_hdwp = nullptr;
+    std::vector<WebView*> m_pending;
+};
 
 enum class HostingMode {
     /// Each WebView is a child HWND (inside a Boson container window, for z-order). Default; works with
@@ -153,6 +180,8 @@ public:
     void resize(int width, int height) noexcept;
     /// @brief Bounds in physical pixels relative to the parent client area; any origin.
     void set_bounds(RECT physical_px) noexcept;
+    /// @brief Like set_bounds, but the container move goes through `batch` (applied by BoundsBatch::commit).
+    void set_bounds(RECT physical_px, BoundsBatch& batch) noexcept;
     /// @brief Bounds in DIPs, scaled with GetDpiForWindow(parent).
     void set_bounds_dip(RECT dip) noexcept;
     [[nodiscard]] RECT bounds() const noexcept { return m_bounds; }
@@ -242,6 +271,7 @@ public:
 
 private:
     friend class Environment;
+    friend class BoundsBatch;
 
     static LRESULT CALLBACK container_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param);
 
@@ -252,10 +282,17 @@ private:
     void register_event_handlers();
     void unregister_event_handlers() noexcept;
     void apply_bounds() noexcept;
+    bool defer_bounds_while_hidden() noexcept;
+    /// SetWindowPos on the container, skipped when the container is already there.
+    void apply_container_bounds() noexcept;
+    /// put_Bounds only when the size changed, NotifyParentWindowPositionChanged only when the rect changed.
+    void apply_controller_bounds() noexcept;
     bool dispatch_web_message(const WebMessage& message);
     bool dispatch_resource_request(ICoreWebView2WebResourceRequestedEventArgs* args, std::string_view uri);
     void apply_visibility() noexcept;
     void raise_caption_overlay() const noexcept;
+    /// true when only Boson's keep-on-top overlays are above the container in the parent's z-order.
+    [[nodiscard]] bool is_top_content_child() const noexcept;
     void release_controller() noexcept;
     void detach_from_environment() noexcept;
     void reattach_to_environment();
@@ -294,6 +331,15 @@ private:
 
     RECT m_bounds{};
     bool m_has_bounds = false;
+    RECT m_container_rect{};          // last rect given to the container window
+    bool m_container_rect_valid = false;
+    SIZE m_controller_size{};         // last size given to ICoreWebView2Controller::put_Bounds
+    POINT m_controller_origin{};      // container origin at the last NotifyParentWindowPositionChanged
+    bool m_controller_bounds_valid = false;
+    int m_applied_container_visible = -1;  // last ShowWindow state (1 shown, 0 hidden, -1 unknown)
+    int m_applied_controller_visible = -1; // last put_IsVisible value
+    bool m_bounds_pending = false; // set_bounds arrived while hidden; applied by set_visible(true)
+    ULONGLONG m_last_position_notify = 0; // GetTickCount64 of the last NotifyParentWindowPositionChanged
     bool m_visible = true;
     bool m_parent_minimized = false;
     bool m_keep_visible_when_minimized = false;

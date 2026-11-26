@@ -756,6 +756,13 @@ if(BOSON_BUN_EXECUTABLE)
 endif()
 add_test(NAME boson_terminal_tests COMMAND boson_terminal_tests)
 set_tests_properties(boson_terminal_tests PROPERTIES LABELS integration TIMEOUT 600)
+# Opt-in: bundle the Microsoft.Windows.Console.ConPTY redistributable (conpty.dll + OpenConsole.exe, MIT, signed) next
+# to the terminal executables for ~20x ConPTY output throughput. See cmake/BosonConPTY.cmake and docs/TERMINAL.md.
+option(BOSON_BUNDLE_CONPTY "Download the ConPTY NuGet package and copy conpty.dll + OpenConsole.exe next to the terminal executables" OFF)
+if(BOSON_BUNDLE_CONPTY)
+    include(cmake/BosonConPTY.cmake)
+    boson_bundle_conpty(boson_terminal_tests)
+endif()
 # Terminal demo (examples/terminal_demo): split panes of ConPTY terminals rendered by xterm.js + WebGL. Needs bun
 # and frontend/node_modules (cd frontend && bun install: @xterm/* are devDependencies); skipped otherwise.
 set(BOSON_TERMINAL_DEMO_WEB "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/web")
@@ -789,6 +796,9 @@ if(BOSON_BUN_EXECUTABLE AND EXISTS "${BOSON_XTERM_DIR}/xterm/css/xterm.css" AND 
     add_dependencies(boson_terminal_demo boson_terminal_demo_assets)
     target_include_directories(boson_terminal_demo PRIVATE "${_demo_gen}")
     target_link_libraries(boson_terminal_demo PRIVATE boson_core)
+    if(BOSON_BUNDLE_CONPTY)
+        boson_bundle_conpty(boson_terminal_demo)
+    endif()
     add_test(NAME boson_terminal_demo_selftest COMMAND boson_terminal_demo --selftest)
     set_tests_properties(boson_terminal_demo_selftest PROPERTIES LABELS integration TIMEOUT 120)
 endif()

@@ -187,9 +187,9 @@ Release build (`/O2`), WebView2 158.0.4370.33, Windows 11, DPR 1, measured by `b
 | `compute_element_placement` | 20 ns |
 | `ws::parse_frame`, 1 KiB masked frame | 0.41 µs (2.5 GB/s) |
 | `GuestManager::apply_layout`, 8 guests, nothing changed | 0.11 µs / frame |
-| … 8 guests move (scroll) | 3.7 ms / frame (≈ 0.46 ms per guest: `SetWindowPos` + `put_Bounds` + `NotifyParentWindowPositionChanged`) |
-| … 8 guests move + region change | 6.0 ms / frame |
-| … 8 guests resize | 5.2 ms / frame |
+| … 8 guests move (scroll) | 3.7 ms / frame before the optimisation pass (≈ 0.46 ms per guest: `SetWindowPos` + `put_Bounds` + `NotifyParentWindowPositionChanged`). Now one batched `DeferWindowPos` pass, no `put_Bounds`, throttled position notification: ~3-4x cheaper in an interleaved A/B on a loaded machine (see [PERFORMANCE.md](PERFORMANCE.md)) |
+| … 8 guests move + region change | 6.0 ms / frame before (`SetWindowRgn` per guest still dominates) |
+| … 8 guests resize | 5.2 ms / frame before (bound by one synchronous `put_Bounds` per resized guest) |
 | JS layout flush (measure + diff, 1 element) | ≈ 0.1-0.2 ms (`layoutStats().lastFlushMs`) |
 | Scroll → native move observed by the test | 1.6-2.6 ms (includes an ExecuteScript round trip) |
 | `Cdp::call` Runtime.evaluate round trip | 184 µs |
