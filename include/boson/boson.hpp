@@ -22,9 +22,24 @@
 #include <boson/ipc/router.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
+#include <boson/ipc/controllers/auto_launch_controller.hpp>
+#include <boson/ipc/controllers/notification_controller.hpp>
+#include <boson/ipc/controllers/power_controller.hpp>
+#include <boson/ipc/controllers/shell_common.hpp>
+#include <boson/ipc/controllers/shell_events.hpp>
+#include <boson/ipc/controllers/taskbar_controller.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
+
+#include <boson/shell/app_id.hpp>
+#include <boson/shell/auto_launch.hpp>
+#include <boson/shell/icon.hpp>
+#include <boson/shell/jump_list.hpp>
+#include <boson/shell/power.hpp>
+#include <boson/shell/taskbar.hpp>
+#include <boson/shell/toast.hpp>
+#include <boson/shell/toast_activation.hpp>
 
 #include <boson/app/lifecycle.hpp>
 
