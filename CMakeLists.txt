@@ -185,6 +185,58 @@ target_link_libraries(boson_core
         dbghelp
 )
 
+# ---- boson_gpu: native GPU surfaces composited with WebView2 (docs/GPU.md) ----------------------------------
+# A separate library so apps that do not render natively never load d3d11 / d3d12 / dwrite.
+find_program(BOSON_FXC fxc
+    HINTS "$ENV{WindowsSdkVerBinPath}/x64" "$ENV{WindowsSdkBinPath}/x64"
+    PATHS "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" "C:/Program Files (x86)/Windows Kits/10/bin/x64"
+    REQUIRED)
+set(BOSON_GPU_SHADER_DIR "${CMAKE_BINARY_DIR}/generated/gpu")
+file(MAKE_DIRECTORY "${BOSON_GPU_SHADER_DIR}")
+set(BOSON_GPU_SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/batch2d.hlsl")
+add_custom_command(
+    OUTPUT "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h" "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h"
+    COMMAND "${BOSON_FXC}" /nologo /O3 /WX /T vs_4_0 /E vs_main /Vn g_batch2d_vs /Fh "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h" "${BOSON_GPU_SHADER_SRC}"
+    COMMAND "${BOSON_FXC}" /nologo /O3 /WX /T ps_4_0 /E ps_main /Vn g_batch2d_ps /Fh "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h" "${BOSON_GPU_SHADER_SRC}"
+    DEPENDS "${BOSON_GPU_SHADER_SRC}"
+    COMMENT "Compiling gpu::Renderer2D shaders (fxc)"
+    VERBATIM)
+
+# Vulkan headers only (vulkan-1.dll is loaded at runtime): the installed SDK when present, else Vulkan-Headers.
+file(GLOB _boson_vulkan_sdk_includes "C:/VulkanSDK/*/Include")
+find_path(BOSON_VULKAN_INCLUDE_DIR vulkan/vulkan.h HINTS "$ENV{VULKAN_SDK}/Include" PATHS ${_boson_vulkan_sdk_includes})
+if(NOT BOSON_VULKAN_INCLUDE_DIR)
+    FetchContent_Declare(
+        vulkan_headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG v1.4.309
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(vulkan_headers)
+    set(BOSON_VULKAN_INCLUDE_DIR "${vulkan_headers_SOURCE_DIR}/include")
+endif()
+message(STATUS "Boson GPU: Vulkan headers from ${BOSON_VULKAN_INCLUDE_DIR}")
+
+add_library(boson_gpu STATIC
+    src/gpu/device.cpp
+    src/gpu/render_loop.cpp
+    src/gpu/surface.cpp
+    src/gpu/renderer2d.cpp
+    src/gpu/vulkan_interop.cpp
+    "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h"
+    "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h"
+)
+target_include_directories(boson_gpu
+    PUBLIC "${BOSON_VULKAN_INCLUDE_DIR}"
+    PRIVATE "${BOSON_GPU_SHADER_DIR}")
+target_link_libraries(boson_gpu PUBLIC boson_core d3d11 d3d12 dxgi dwrite dcomp)
+
+add_executable(boson_gpu_demo WIN32
+    examples/gpu_demo/main.cpp
+    examples/gpu_demo/demo_page.hpp
+)
+target_link_libraries(boson_gpu_demo PRIVATE boson_gpu)
+
 add_executable(boson_demo WIN32
     examples/demo/main.cpp
 )
@@ -230,7 +282,7 @@ target_link_libraries(boson_bench PRIVATE boson_core)
 add_executable(boson_tsgen
     tools/tsgen/main.cpp
 )
-target_link_libraries(boson_tsgen PRIVATE boson_core)
+target_link_libraries(boson_tsgen PRIVATE boson_core boson_gpu)
 
 # Hardware-DRM verification spike (issue #15): plays public PlayReady test streams in windowed and composition
 # hosting and records playback / capture evidence. Manual tool: needs network, a GPU and a real display.
@@ -454,3 +506,12 @@ add_executable(boson_transfer_tests
 target_link_libraries(boson_transfer_tests PRIVATE boson_core)
 add_test(NAME boson_transfer_tests COMMAND boson_transfer_tests)
 set_tests_properties(boson_transfer_tests PROPERTIES TIMEOUT 300)
+# Native GPU surfaces: D3D11 / D3D12 devices, offscreen readback of the 2D batch renderer and DirectWrite text,
+# composition swap chains (create / resize / present, idle = no presents), device-lost recovery and Vulkan
+# interop readback (skips without vulkan-1.dll). Opens one small SW_SHOWNOACTIVATE window.
+add_executable(boson_gpu_tests
+    tests/test_gpu.cpp
+)
+target_link_libraries(boson_gpu_tests PRIVATE boson_gpu)
+add_test(NAME boson_gpu_tests COMMAND boson_gpu_tests)
+set_tests_properties(boson_gpu_tests PROPERTIES TIMEOUT 180)

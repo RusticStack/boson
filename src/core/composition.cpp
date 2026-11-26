@@ -42,9 +42,13 @@ bool CompositionHost::initialize() {
     if (!BOSON_HR_CHECK(m_device->CreateVisual(&m_root)) || !m_root) {
         return false;
     }
+    if (!BOSON_HR_CHECK(m_device->CreateVisual(&m_underlay)) || !BOSON_HR_CHECK(m_device->CreateVisual(&m_overlay))) {
+        return false;
+    }
     if (!BOSON_HR_CHECK(m_target->SetRoot(m_root.Get()))) {
         return false;
     }
+    rebuild_tree();
     return commit();
 }
 
@@ -105,10 +109,17 @@ void CompositionHost::rebuild_tree() noexcept {
     }
     m_root->RemoveAllVisuals();
     IDCompositionVisual* previous = nullptr;
+    if (m_underlay) {
+        BOSON_HR_CHECK(m_root->AddVisual(m_underlay.Get(), TRUE, nullptr));
+        previous = m_underlay.Get();
+    }
     for (const auto& entry : m_entries) {
         // insertAbove = TRUE relative to the previous sibling gives an explicit bottom -> top order.
         BOSON_HR_CHECK(m_root->AddVisual(entry.visual.Get(), TRUE, previous));
         previous = entry.visual.Get();
+    }
+    if (m_overlay) {
+        BOSON_HR_CHECK(m_root->AddVisual(m_overlay.Get(), TRUE, previous));
     }
     commit();
 }
