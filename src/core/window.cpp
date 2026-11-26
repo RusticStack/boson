@@ -1,6 +1,8 @@
 #include <boson/core/window.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/titlebar/caption_accessibility.hpp>
+#include <boson/titlebar/window_chrome.hpp>
 
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -388,6 +390,17 @@ LRESULT CALLBACK Window::overlay_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARA
             self->maximize_or_restore();
         }
         return 0;
+    case WM_GETOBJECT:
+        if (self != nullptr && self->m_hwnd != nullptr) {
+            // UI Automation: the overlay is a Button named "Maximize" / "Restore" with the Invoke pattern.
+            if (const auto result = titlebar::html_caption_overlay_get_object(hwnd, self->m_hwnd, w_param, l_param)) {
+                return *result;
+            }
+        }
+        break;
+    case WM_DESTROY:
+        titlebar::html_caption_overlay_destroyed(hwnd);
+        break;
     case WM_NCRBUTTONUP:
         if (self != nullptr && self->m_hwnd != nullptr) {
             // Right-click on a caption button shows the window menu, like a native caption.
@@ -868,7 +881,11 @@ void Window::handle_min_max_info(MINMAXINFO* info) const noexcept {
     const UINT window_dpi = dpi();
     RECT rc{0, 0, MulDiv(m_config.min_width, static_cast<int>(window_dpi), USER_DEFAULT_SCREEN_DPI),
             MulDiv(m_config.min_height, static_cast<int>(window_dpi), USER_DEFAULT_SCREEN_DPI)};
-    if (!is_headless()) {
+    if (is_headless() && uses_native_resize_borders()) {
+        const SIZE frame = titlebar::resize_frame_size(window_dpi);
+        rc.right += 2 * frame.cx;
+        rc.bottom += frame.cy;
+    } else if (!is_headless()) {
         AdjustWindowRectExForDpi(
             &rc,
             static_cast<DWORD>(GetWindowLongPtrW(m_hwnd, GWL_STYLE)),
@@ -1003,20 +1020,17 @@ LRESULT Window::handle_nccalcsize(WPARAM w_param, LPARAM l_param) const noexcept
         return 0;
     }
 
-    if (IsZoomed(m_hwnd)) {
-        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
-        const UINT dpi = GetDpiForWindow(m_hwnd);
-        const int padded = GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
-        const int frame_x = GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + padded;
-        const int frame_y = GetSystemMetricsForDpi(SM_CYSIZEFRAME, dpi) + padded;
-
-        params->rgrc[0].left += frame_x;
-        params->rgrc[0].top += frame_y;
-        params->rgrc[0].right -= frame_x;
-        params->rgrc[0].bottom -= frame_y;
-    }
-
+    // Maximized: strip the off-screen frame and clamp to the monitor work area (leaving a reveal strip on
+    // auto-hide taskbar edges). Restored: keep side/bottom resize borders non-client when requested.
+    auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
+    titlebar::adjust_headless_client_rect(
+        m_hwnd, params->rgrc[0], IsZoomed(m_hwnd) != FALSE, uses_native_resize_borders(), GetDpiForWindow(m_hwnd));
     return 0;
+}
+
+bool Window::uses_native_resize_borders() const noexcept {
+    return m_config.native_resize_borders && m_hwnd != nullptr &&
+           (GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & WS_EX_LAYERED) == 0;
 }
 
 LRESULT Window::resize_border_hit(POINT pt) const noexcept {
