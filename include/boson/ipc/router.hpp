@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -18,8 +19,18 @@
 #include "boson/exec/task_runner.hpp"
 #include "boson/ipc/export.hpp"
 #include "boson/ipc/protocol_types.hpp"
+#include "boson/ipc/request_context.hpp"
 
 namespace boson::ipc {
+
+/// @brief A controller whose methods are only known at runtime (e.g. compat::ElectronIpc). The Router hands
+/// it "Name.method" requests whose controller name matches; it returns false when it has no such method.
+/// boson_dispatch must not throw: it writes a complete response envelope (success or error) to out.
+template <typename T>
+concept DynamicController = BosonController<T> &&
+    requires(T& controller, std::string_view method, std::uint64_t id, std::string_view params, std::string& out) {
+        { controller.boson_dispatch(method, id, params, out) } noexcept -> std::same_as<bool>;
+    };
 
 namespace detail {
 
@@ -224,7 +235,8 @@ public:
         const std::uint64_t request_id = parse_ec ? 0 : header.id;
 
         std::string payload{raw_json};
-        runner.dispatch(request_id, [this, payload = std::move(payload)]() mutable -> std::string {
+        runner.dispatch(request_id, [this, payload = std::move(payload), sender = current_sender_id()]() mutable -> std::string {
+            const SenderScope scope{sender};
             return this->dispatch_sync(payload);
         });
     }
@@ -241,7 +253,8 @@ public:
         std::string payload{raw_json};
         runner.dispatch(
             request_id,
-            [this, payload = std::move(payload)]() mutable -> std::string {
+            [this, payload = std::move(payload), sender = current_sender_id()]() mutable -> std::string {
+                const SenderScope scope{sender};
                 return this->dispatch_sync(payload);
             },
             std::move(reply));
@@ -261,6 +274,21 @@ private:
             return;
         }
 
+        if constexpr (DynamicController<Controller>) {
+            out_matched = controller.boson_dispatch(target_method, request_id, params_json, out_response);
+        } else {
+            dispatch_static(controller, target_method, request_id, params_json, out_response, out_matched);
+        }
+    }
+
+    template <typename Controller>
+    static void dispatch_static(
+        Controller& controller,
+        std::string_view target_method,
+        std::uint64_t request_id,
+        std::string_view params_json,
+        std::string& out_response,
+        bool& out_matched) {
         detail::for_each_controller_method<Controller>(
             [&](std::string_view name, auto mem_fn) {
                 if (!out_matched && name == target_method) {
