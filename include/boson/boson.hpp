@@ -42,9 +42,15 @@
 #include <boson/webview/proxy.hpp>
 #include <boson/webview/security_events.hpp>
 #include <boson/ipc/controllers/titlebar_controller.hpp>
+#include <boson/ipc/controllers/menu_controller.hpp>
 
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
+#include <boson/native/tray.hpp>
+
+#include <boson/menu/accelerator.hpp>
+#include <boson/menu/menu.hpp>
+#include <boson/menu/menu_bar.hpp>
 
 #include <boson/shell/app_id.hpp>
 #include <boson/shell/auto_launch.hpp>

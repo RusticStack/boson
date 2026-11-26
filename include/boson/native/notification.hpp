@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <boson/native/tray.hpp>
+
 #include <string>
 #include <string_view>
 
@@ -44,25 +46,7 @@ private:
     bool m_registered = false;
 };
 
-/// @brief RAII wrapper for a persistent Windows System Tray icon.
-class SystemTray {
-public:
-    static constexpr UINT kWmTrayCallback = WM_APP + 2;
-
-    explicit SystemTray(HWND owner = nullptr) noexcept : m_owner(owner) {}
-    ~SystemTray();
-
-    SystemTray(const SystemTray&) = delete;
-    SystemTray& operator=(const SystemTray&) = delete;
-
-    bool show(HWND owner, std::string_view tooltip);
-    bool update_tooltip(std::string_view tooltip) noexcept;
-    void hide() noexcept;
-
-private:
-    HWND m_owner = nullptr;
-    UINT m_icon_id = 2;
-    bool m_visible = false;
-};
+/// @brief Former name of TrayIcon (include/boson/native/tray.hpp), which superseded it.
+using SystemTray = TrayIcon;
 
 } // namespace boson::native

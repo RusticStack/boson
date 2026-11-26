@@ -88,6 +88,10 @@ add_library(boson_core STATIC
     src/titlebar/caption_accessibility.cpp
     src/titlebar/caption_buttons.cpp
     src/titlebar/titlebar.cpp
+    src/native/tray.cpp
+    src/menu/accelerator.cpp
+    src/menu/menu.cpp
+    src/menu/menu_bar.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -140,6 +144,7 @@ target_link_libraries(boson_core
         windowscodecs
         crypt32
         uiautomationcore
+        windowscodecs
 )
 
 add_executable(boson_demo WIN32
@@ -248,3 +253,10 @@ add_executable(boson_titlebar_tests
 target_link_libraries(boson_titlebar_tests PRIVATE boson_core)
 add_test(NAME boson_titlebar_tests COMMAND boson_titlebar_tests)
 set_tests_properties(boson_titlebar_tests PROPERTIES TIMEOUT 180)
+# Menus, accelerators and tray. Opens small SW_SHOWNOACTIVATE windows; the WebView part skips without a runtime.
+add_executable(boson_menu_tests
+    tests/test_menu.cpp
+)
+target_link_libraries(boson_menu_tests PRIVATE boson_core)
+add_test(NAME boson_menu_tests COMMAND boson_menu_tests)
+set_tests_properties(boson_menu_tests PROPERTIES TIMEOUT 180)
