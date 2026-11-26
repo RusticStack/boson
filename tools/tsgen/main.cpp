@@ -6,9 +6,7 @@
 #include <boson/ipc/controllers/auto_launch_controller.hpp>
 #include <boson/ipc/controllers/clipboard_controller.hpp>
 #include <boson/ipc/controllers/credential_controller.hpp>
-#include <boson/ipc/controllers/drag_controller.hpp>
-#include <boson/ipc/controllers/fs_controller.hpp>
-#include <boson/ipc/controllers/gpu_controller.hpp>
+
 #include <boson/ipc/controllers/log_controller.hpp>
 #include <boson/ipc/controllers/menu_controller.hpp>
 #include <boson/ipc/controllers/native_controller.hpp>
@@ -64,14 +62,16 @@ bool write_file(const std::filesystem::path& out_path, const std::string& conten
 } // namespace
 
 using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents, boson::ipc::DesktopEvents, boson::ipc::MenuEvents,
-                                                      boson::ipc::ShellIntegrationEvents, boson::ipc::PlatformEvents,
+                                                      boson::ipc::ShellIntegrationEvents,
+                                                      boson::ipc::PlatformEvents,
                                                       boson::ipc::StoreEvents<boson::demo::DemoSettings>,
                                                       boson::ipc::DragEvents,
                                                       boson::ipc::WindowManagerEvents,
                                                       boson::ipc::NativeEvents,
                                                       boson::ipc::GpuEvents,
                                                       boson::ipc::ProcessEvents,
-                                                      boson::ipc::TerminalEvents>;
+                                                      boson::ipc::TerminalEvents,
+                                                      boson::ipc::HttpEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -90,6 +90,8 @@ using AllControllers = Outputs<
     boson::ipc::DialogController,
     boson::ipc::FsController,
     boson::ipc::GpuController,
+    boson::ipc::DbController,
+    boson::ipc::HttpController,
     boson::ipc::LogController,
     boson::ipc::MenuController,
     boson::ipc::NativeController,

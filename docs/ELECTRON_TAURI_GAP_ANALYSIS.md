@@ -47,8 +47,13 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Chromium switches | `app.commandLine.appendSwitch` | `additionalBrowserArgs` | `native::browser_args` (WebGL context limit, merged `--js-flags`, features, autoplay) |
 | **Storage & Security** | Scoped Filesystem API | Node `fs` (unscoped) | `tauri-plugin-fs` (capability-scoped) | `security::ScopedFs` + `Fs.*` (traversal, junction, UNC/device-path protection; watch) |
 | | Secure Credential Store | `safeStorage` (Win32 DPAPI) | `stronghold` / `keyring` | `SafeStorage` (DPAPI) + `CredentialStore` (Windows Credential Manager) |
+| | Embedded database | `better-sqlite3` (native module) | `tauri-plugin-sql` | `db::Database` + `Table<T>` (glaze row mapping, prepared-statement cache, transactions) on SQLite or ZephyrDB, `KvStore` + namespaced `Db` controller ([NATIVE_SERVICES.md](NATIVE_SERVICES.md)) |
 | | Settings Store | `electron-store` | `tauri-plugin-store` | `store::Store<T>` (typed, defaults, corrupt-file recovery, atomic saves) + `Store` controller and `store:changed` ([STORE.md](STORE.md)) |
 | | Per-Window Capabilities / CSP | `contextIsolation` + `sandbox` + CSP | `capabilities/*.json` + `security.csp` | `CapabilityPolicy` per WebView/origin (checked before dispatch) + strict default CSP + navigation/new-window policies |
+| **Native services** | HTTP client (no CORS) | `net.request` / `fetch` in main | `tauri-plugin-http` | `net::HttpClient` (WinHTTP, redirects checked per hop, gzip/deflate, retries, timeouts, cancel, caps, cache, system/explicit proxy, senders) + `Http` controller with a host allow-list and downloads to `ScopedFs` paths |
+| | Archives | Userland (`adm-zip`, `yauzl`) | — | `archive::ZipReader` / `ZipWriter` (deflate, ZIP64, traversal / symlink / bomb rejection, staging extraction) |
+| | Hashing | Node `crypto` | Rust crates | `crypto::Hasher` (CNG MD5/SHA-1/SHA-2, streaming, files) |
+| | Atomic directory installs | — | — | `fs::InstallTransaction` (staged swap, rollback, crash recovery) + `TempDir` + known folders (OneDrive aware) |
 | **Distribution** | Code Signing | Authenticode (`signtool`) | `signtool.exe` integration | `boson_sign_target` (thumbprint, PFX, Azure Trusted Signing parameters) |
 | | Installers (NSIS / MSI / MSIX) | Forge / `electron-builder` | Built-in `tauri bundler` | `boson_package`: ZIP and MSIX built and tested; MSI (CPack WiX) templates untested (WiX not installed) |
 | | Auto-Updater | `autoUpdater` / `electron-updater` | `tauri-plugin-updater` (Ed25519) | `shipping::Updater` (manifest, staged rollout, resume, SHA-256 + ECDSA P-256 signatures, rollback) |
@@ -78,6 +83,7 @@ Done (see the module docs):
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
 - Child processes, sidecars, named pipes, bundled Node: [PROCESS.md](PROCESS.md)
+- HTTP client, archives, hashing, staged installs, SQLite / ZephyrDB: [NATIVE_SERVICES.md](NATIVE_SERVICES.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
 - Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / preferences, session end, close-to-tray: [NATIVE.md](NATIVE.md)
 - Native GPU surfaces, 2D renderer, Vulkan interop: [GPU.md](GPU.md)

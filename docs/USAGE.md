@@ -446,6 +446,7 @@ Each module has its own guide with API, examples and an honest verification sect
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
 | Child processes, sidecars, named pipes, bundled Node | [PROCESS.md](PROCESS.md) | `Process` | `process:stdout`, `process:stderr`, `process:exit`, `process:exec`, `process:message` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
+| HTTP client, ZIP, hashing, staged installs, known folders, SQLite / ZephyrDB | [NATIVE_SERVICES.md](NATIVE_SERVICES.md) | `Http`, `Db` | `http:progress`, `http:done` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
 | Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / system preferences, session end, close-to-tray | [NATIVE.md](NATIVE.md) | `Dialog`, `Permissions`, `Zoom`, `Native` | `permission:*`, `zoom:changed`, `system:*`, `session:*`, `tray:window-hidden`, `web-notification:*` |
 | Native GPU surfaces (D3D11/D3D12, 2D renderer, Vulkan interop) | [GPU.md](GPU.md) | `Gpu` | `gpu:device_lost` |

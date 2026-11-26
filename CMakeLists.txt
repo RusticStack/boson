@@ -48,6 +48,72 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stdexec)
 
+# ---- Native app services: inflate (archive::ZipReader) and SQLite (db::Database) -------------------------
+# miniz: one C file (MIT), inflate/deflate + CRC-32 only (archive / stdio / time APIs compiled out).
+# SQLite: the public-domain amalgamation, multi-thread mode (each connection is guarded by db::Database).
+# Both are plain C sources without a CMake project of their own: FetchContent only downloads them.
+enable_language(C)
+FetchContent_Declare(
+    boson_miniz
+    URL https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip
+    URL_HASH SHA256=f0446d863f9c19926ad9483c523fdc42e42b8d4a6a431d27e09d49c79a140d9a
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+# Database backends of boson::db (same typed API, chosen per Database::open). An app only links what is ON.
+option(BOSON_DB_SQLITE "Build the SQLite backend of boson::db" ON)
+option(BOSON_DB_ZEPHYR "Build the ZephyrDB backend of boson::db" ON)
+FetchContent_Declare(
+    boson_sqlite3
+    URL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+    URL_HASH SHA256=0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(boson_miniz)
+
+add_library(boson_miniz STATIC "${boson_miniz_SOURCE_DIR}/miniz.c")
+target_include_directories(boson_miniz SYSTEM PUBLIC "${boson_miniz_SOURCE_DIR}")
+target_compile_definitions(boson_miniz PUBLIC
+    MINIZ_NO_ZLIB_COMPATIBLE_NAMES MINIZ_NO_ARCHIVE_APIS MINIZ_NO_STDIO MINIZ_NO_TIME)
+target_compile_options(boson_miniz PRIVATE $<$<C_COMPILER_ID:MSVC>:/W0>)
+
+if(BOSON_DB_SQLITE)
+FetchContent_MakeAvailable(boson_sqlite3)
+add_library(boson_sqlite3 STATIC "${boson_sqlite3_SOURCE_DIR}/sqlite3.c")
+target_include_directories(boson_sqlite3 SYSTEM PUBLIC "${boson_sqlite3_SOURCE_DIR}")
+target_compile_definitions(boson_sqlite3 PRIVATE
+    SQLITE_THREADSAFE=2
+    SQLITE_DQS=0
+    SQLITE_DEFAULT_MEMSTATUS=0
+    SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
+    SQLITE_LIKE_DOESNT_MATCH_BLOBS
+    SQLITE_MAX_EXPR_DEPTH=0
+    SQLITE_OMIT_DEPRECATED
+    SQLITE_OMIT_SHARED_CACHE
+    SQLITE_OMIT_LOAD_EXTENSION
+    SQLITE_USE_ALLOCA
+    SQLITE_WIN32_NO_ANSI)
+target_compile_options(boson_sqlite3 PRIVATE $<$<C_COMPILER_ID:MSVC>:/W0>)
+endif()
+
+# ZephyrDB (https://github.com/KelpHect/ZephyrDB), pinned. Linked statically through its C ABI
+# (zephyr/c_abi.h); its own warnings stay in its own target. EXCLUDE_FROM_ALL: only zephyrdb_core is built
+# (not its DLL / server / tests). Local clone: -DFETCHCONTENT_SOURCE_DIR_BOSON_ZEPHYRDB=D:/Projects/ZephyrDB
+set(BOSON_ZEPHYR_COMMIT c50eea79fee693df1931c471819016dacf43a09e)
+if(BOSON_DB_ZEPHYR)
+    set(ZEPHYR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ZEPHYR_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+    set(ZEPHYR_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        boson_zephyrdb
+        GIT_REPOSITORY https://github.com/KelpHect/ZephyrDB.git
+        GIT_TAG ${BOSON_ZEPHYR_COMMIT}
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(boson_zephyrdb)
+    # ZephyrDB's own /W4 build reports C4702 (unreachable code) in executor.cpp; keep its noise out of ours.
+    target_compile_options(zephyrdb_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4702>)
+endif()
+
 add_library(boson_core STATIC
     src/core/window.cpp
     src/core/webview.cpp
@@ -136,6 +202,17 @@ add_library(boson_core STATIC
     src/terminal/pty.cpp
     src/terminal/output_channel.cpp
     src/terminal/terminal_host.cpp
+    src/crypto/hash.cpp
+    src/archive/zip.cpp
+    src/fs/install_transaction.cpp
+    src/fs/known_folders.cpp
+    src/db/database.cpp
+    src/db/kv_store.cpp
+    $<$<BOOL:${BOSON_DB_SQLITE}>:src/db/sqlite_backend.cpp>
+    $<$<BOOL:${BOSON_DB_ZEPHYR}>:src/db/zephyr_backend.cpp>
+    src/net/http_client.cpp
+    src/net/http_cache.cpp
+    src/net/proxy.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -193,6 +270,17 @@ target_link_libraries(boson_core
         wintrust
         dbghelp
         ws2_32
+    PRIVATE
+        boson_miniz
+        $<$<BOOL:${BOSON_DB_SQLITE}>:boson_sqlite3>
+        $<$<BOOL:${BOSON_DB_ZEPHYR}>:zephyrdb_core>
+)
+target_compile_definitions(boson_core
+    PUBLIC
+        BOSON_DB_HAS_SQLITE=$<BOOL:${BOSON_DB_SQLITE}>
+        BOSON_DB_HAS_ZEPHYR=$<BOOL:${BOSON_DB_ZEPHYR}>
+    PRIVATE
+        BOSON_ZEPHYR_COMMIT="${BOSON_ZEPHYR_COMMIT}"
 )
 
 # ---- boson_gpu: native GPU surfaces composited with WebView2 (docs/GPU.md) ----------------------------------
@@ -283,6 +371,12 @@ add_executable(boson_process_example
     examples/process/main.cpp
 )
 target_link_libraries(boson_process_example PRIVATE boson_core)
+
+add_executable(boson_addon_manager_mini
+    examples/addon_manager_mini/main.cpp
+)
+target_link_libraries(boson_addon_manager_mini PRIVATE boson_core ws2_32)
+add_test(NAME boson_addon_manager_mini_selftest COMMAND boson_addon_manager_mini --selftest)
 
 add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
@@ -465,6 +559,17 @@ if(BOSON_BUN_EXECUTABLE)
     add_dependencies(boson_window_tests boson_windows_selftest_js)
     target_compile_definitions(boson_window_tests PRIVATE BOSON_WINDOWS_SELFTEST_JS="${BOSON_WINDOWS_SELFTEST_JS}")
 endif()
+
+# boson::db backend benchmark (not a test; run a Release build by hand).
+add_executable(boson_db_bench tests/bench_db.cpp)
+target_link_libraries(boson_db_bench PRIVATE boson_core)
+# Native app services: hashing, ZIP, staged installs, HTTP client (loopback server), boson::db backends.
+add_executable(boson_native_services_tests
+    tests/test_native_services.cpp
+)
+target_link_libraries(boson_native_services_tests PRIVATE boson_core ws2_32)
+add_test(NAME boson_native_services_tests COMMAND boson_native_services_tests)
+set_tests_properties(boson_native_services_tests PROPERTIES TIMEOUT 300)
 # Shipping: versions, crypto, manifests, logger, loopback downloads, update helper, crash dumps.
 add_executable(boson_shipping_tests
     tests/test_shipping.cpp
