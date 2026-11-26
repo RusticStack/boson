@@ -508,6 +508,95 @@ export interface PowerBlockerIdRequest {
     id: number;
 }
 
+export interface ProcessSpawnResponse {
+    id: number;
+    pid: number;
+    executable: string;
+}
+
+export interface ProcessSpawnRequest {
+    command: string;
+    args: Array<string>;
+    cwd: string;
+    env: Record<string, string>;
+    clear_env: boolean;
+    stdin_mode: string;
+    stdout_mode: string;
+    stderr_mode: string;
+    output: string;
+    encoding: string;
+    ipc: boolean;
+    detached: boolean;
+    hide_window: boolean;
+    timeout_ms: number;
+    flow_control: boolean;
+    high_water_bytes: number;
+    max_line_bytes: number;
+}
+
+export interface ProcessExecRequest {
+    command: string;
+    args: Array<string>;
+    cwd: string;
+    env: Record<string, string>;
+    clear_env: boolean;
+    input: string;
+    input_encoding: string;
+    timeout_ms: number;
+    max_buffer: number;
+    encoding: string;
+    hide_window: boolean;
+}
+
+export interface ProcessWriteResponse {
+    ok: boolean;
+    pending_bytes: number;
+}
+
+export interface ProcessWriteRequest {
+    id: number;
+    data: string;
+    encoding: string;
+}
+
+export interface ProcessOkResponse {
+    ok: boolean;
+}
+
+export interface ProcessIdRequest {
+    id: number;
+}
+
+export interface ProcessKillRequest {
+    id: number;
+    signal: string;
+    tree: boolean;
+}
+
+export interface ProcessAckRequest {
+    id: number;
+    stream: string;
+    bytes: number;
+}
+
+export interface ProcessSendRequest {
+    id: number;
+    message: string;
+}
+
+export interface ProcessListEntry {
+    id: number;
+    pid: number;
+    executable: string;
+    running: boolean;
+    exec: boolean;
+    exit_code?: number | null;
+}
+
+export interface ProcessListResponse {
+    processes: Array<ProcessListEntry>;
+}
+
 export interface SafeStorageAvailability {
     value: boolean;
 }
@@ -1127,6 +1216,30 @@ export interface StoreChangedEvent_DemoSettings {
     change: StoreChange;
 }
 
+export interface ProcessOutputEvent {
+    id: number;
+    stream: string;
+    data?: string | null;
+    lines?: Array<string> | null;
+    encoding: string;
+    bytes: number;
+}
+
+export interface ProcessExitEvent {
+    id: number;
+    pid: number;
+    code: number;
+    killed: boolean;
+    timed_out: boolean;
+    signal?: string | null;
+    duration_ms: number;
+}
+
+export interface ProcessMessageEvent {
+    id: number;
+    message: string;
+}
+
 export interface BosonApi {
     "Boson.start_drag": () => Promise<void>;
     "Boson.minimize": () => Promise<void>;
@@ -1218,6 +1331,14 @@ export interface BosonApi {
     "Power.start_blocker": (params: PowerBlockerRequest) => Promise<PowerBlockerResponse>;
     "Power.stop_blocker": (params: PowerBlockerIdRequest) => Promise<ShellResult>;
     "Power.is_blocker_started": (params: PowerBlockerIdRequest) => Promise<PowerBlockerResponse>;
+    "Process.spawn": (params: ProcessSpawnRequest) => Promise<ProcessSpawnResponse>;
+    "Process.exec": (params: ProcessExecRequest) => Promise<ProcessSpawnResponse>;
+    "Process.write": (params: ProcessWriteRequest) => Promise<ProcessWriteResponse>;
+    "Process.close_stdin": (params: ProcessIdRequest) => Promise<ProcessOkResponse>;
+    "Process.kill": (params: ProcessKillRequest) => Promise<ProcessOkResponse>;
+    "Process.ack": (params: ProcessAckRequest) => Promise<void>;
+    "Process.send": (params: ProcessSendRequest) => Promise<ProcessOkResponse>;
+    "Process.list": () => Promise<ProcessListResponse>;
     "SafeStorage.is_available": () => Promise<SafeStorageAvailability>;
     "SafeStorage.encrypt_string": (params: SafeStorageText) => Promise<SafeStorageData>;
     "SafeStorage.decrypt_string": (params: SafeStorageData) => Promise<SafeStorageText>;
@@ -1318,4 +1439,9 @@ export interface BosonEvents {
     "fs:changed": FsChangeBatch;
     "webview:find": FindStatus;
     "store:changed": StoreChangedEvent_DemoSettings;
+    "process:stdout": ProcessOutputEvent;
+    "process:stderr": ProcessOutputEvent;
+    "process:exit": ProcessExitEvent;
+    "process:exec": unknown;
+    "process:message": ProcessMessageEvent;
 }

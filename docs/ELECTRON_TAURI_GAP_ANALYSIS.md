@@ -43,6 +43,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | | Cookies, profiles, clear data, proxy | `session` | Partial | `webview` cookies, named/InPrivate profiles, `clear_browsing_data`, `ProxyConfig` |
 | **Shell** | Taskbar progress / overlay / thumbnail buttons / jump lists | `setProgressBar`, `setOverlayIcon`, `setThumbarButtons`, `setJumpList` | — | `shell::Taskbar`, `set_jump_list` |
 | | Native caption buttons + accessibility | `titleBarOverlay` | — | `titlebar::Titlebar` (drawn caption buttons, Snap Layouts, UIA, system menu, theme events) |
+| **Processes** | Child processes, sidecars, utility processes | `child_process` (Node) + `utilityProcess` | `tauri-plugin-shell` (`Command`, `sidecar`) | `process::ProcessManager` (no-shell argv, IOCP pipes, extra fds, kill-on-close job, kill tree), `Sidecar` (ready checks, backoff restart, graceful stop), named pipes, `Process.*` behind an executable allow-list + `compat/child_process.ts` / `utilityProcess` |
 | **Diagnostics** | Crash reporting & logging | `crashReporter` | Community | `shipping::CrashReporter` (minidumps, WebView2 process failures) + rotating `Logger` |
 | **Porting** | Framework API shims | — | — | `compat/electron.ts`, `compat/tauri.ts`, `compat/wails.ts` + C++ `ElectronIpc` |
 | **Platforms** | OS Support | Windows, macOS, Linux | Windows, macOS, Linux (+ Mobile) | Windows 10/11 only (macOS/Linux intentionally out of scope for now) |
@@ -60,6 +61,7 @@ Done (see the module docs):
 - Capabilities, CSP, safe storage, credentials, scoped FS: [SECURITY.md](SECURITY.md)
 - Taskbar, jump lists, toasts, power, auto-launch: [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md)
 - Packaging, signing, updater, crash reporting, logging: [SHIPPING.md](SHIPPING.md)
+- Child processes, sidecars, named pipes, bundled Node: [PROCESS.md](PROCESS.md)
 - Titlebar overlay, accessibility, theme events: [TITLEBAR.md](TITLEBAR.md)
 - Electron/Tauri/Wails shims and migration tables: [MIGRATION.md](MIGRATION.md), [PORTING.md](PORTING.md); measurements: [BENCHMARKS.md](BENCHMARKS.md)
 
