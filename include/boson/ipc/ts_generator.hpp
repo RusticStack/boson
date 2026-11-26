@@ -202,11 +202,29 @@ public:
     /// @brief Empty event map.
     struct NoEvents {};
 
+    /// @brief Combines several event maps, e.g. EventMaps<DesktopEvents, MenuEvents, MyAppEvents>.
+    template <typename... Maps>
+    struct EventMaps {};
+
 private:
+    template <typename T>
+    struct IsEventMaps : std::false_type {};
+    template <typename... Maps>
+    struct IsEventMaps<EventMaps<Maps...>> : std::true_type {};
+
+    template <typename... Maps>
+    static std::string combined_event_map_entries(detail::StructRegistry<void>& registry, EventMaps<Maps...>*) {
+        std::string out;
+        ((out += event_map_entries<Maps>(registry)), ...);
+        return out;
+    }
+
     template <typename EventMap>
     static std::string event_map_entries(detail::StructRegistry<void>& registry) {
         std::string out;
-        if constexpr (!std::is_same_v<EventMap, NoEvents>) {
+        if constexpr (IsEventMaps<EventMap>::value) {
+            out = combined_event_map_entries(registry, static_cast<EventMap*>(nullptr));
+        } else if constexpr (!std::is_same_v<EventMap, NoEvents>) {
             constexpr std::size_t count = glz::reflect<EventMap>::size;
             [&]<std::size_t... Is>(std::index_sequence<Is...>) {
                 (([&] {

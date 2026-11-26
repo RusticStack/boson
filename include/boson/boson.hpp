@@ -69,6 +69,7 @@
 #include <boson/desktop/window_state.hpp>
 #include <boson/ipc/controllers/clipboard_controller.hpp>
 #include <boson/ipc/controllers/desktop_events.hpp>
+#include <boson/ipc/controllers/platform_events.hpp>
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
 #include <boson/ipc/controllers/shortcut_controller.hpp>

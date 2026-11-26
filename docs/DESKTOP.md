@@ -255,6 +255,8 @@ try {
 }
 ```
 
+> **Clipboard timing:** on machines running clipboard history, cross-device sync or a clipboard manager, another process may empty and re-post the clipboard right after you write to it. A read issued in that window can briefly report the format as missing. Compare `Clipboard::sequence_number()` or react to `clipboard:changed` rather than reading back immediately after a write.
+
 ## Verification
 
 Tested on this machine (Windows 11 Pro 26300, one 2560x1440 monitor at 100%, 180 Hz) by

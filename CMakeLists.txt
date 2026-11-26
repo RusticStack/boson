@@ -156,9 +156,7 @@ target_link_libraries(boson_core
         windowscodecs
         crypt32
         uiautomationcore
-        windowscodecs
         bcrypt
-        crypt32
         winhttp
         wintrust
         dbghelp

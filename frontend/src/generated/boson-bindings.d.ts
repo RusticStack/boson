@@ -89,6 +89,843 @@ export interface ComputePrimesRequest {
     limit: number;
 }
 
+export interface AutoLaunchStatusResponse {
+    registered: boolean;
+    enabled: boolean;
+    disabled_by_user: boolean;
+    executable: string;
+    args: Array<string>;
+}
+
+export interface AutoLaunchEnableRequest {
+    args: Array<string>;
+}
+
+export interface ClipboardTextResponse {
+    text?: string | null;
+}
+
+export interface ClipboardTextRequest {
+    text: string;
+    exclude_from_history: boolean;
+}
+
+export interface ClipboardHtmlResponse {
+    available: boolean;
+    html: string;
+    fragment: string;
+    source_url: string;
+}
+
+export interface ClipboardHtmlRequest {
+    html: string;
+    text?: string | null;
+    source_url: string;
+    exclude_from_history: boolean;
+}
+
+export interface ClipboardImageResponse {
+    available: boolean;
+    png_base64: string;
+    width: number;
+    height: number;
+}
+
+export interface ClipboardImageRequest {
+    png_base64: string;
+    exclude_from_history: boolean;
+}
+
+export interface ClipboardFilesResponse {
+    paths: Array<string>;
+}
+
+export interface ClipboardFilesRequest {
+    paths: Array<string>;
+}
+
+export interface ClipboardFormatEntry {
+    id: number;
+    name: string;
+}
+
+export interface ClipboardFormatsResponse {
+    sequence_number: number;
+    formats: Array<ClipboardFormatEntry>;
+}
+
+export interface ClipboardBoolResponse {
+    value: boolean;
+}
+
+export interface ClipboardHasRequest {
+    format: string;
+}
+
+export interface CredentialSetRequest {
+    key: string;
+    secret: string;
+    username: string;
+}
+
+export interface CredentialGetResponse {
+    found: boolean;
+    username: string;
+    secret: string;
+}
+
+export interface CredentialKeyRequest {
+    key: string;
+}
+
+export interface CredentialRemoveResponse {
+    value: boolean;
+}
+
+export interface CredentialListResponse {
+    keys: Array<string>;
+}
+
+export interface FsTextResponse {
+    text: string;
+}
+
+export interface FsPathRequest {
+    path: string;
+}
+
+export interface FsBytesResponse {
+    data: string;
+}
+
+export interface FsWriteTextRequest {
+    path: string;
+    text: string;
+    create_dirs: boolean;
+}
+
+export interface FsWriteBytesRequest {
+    path: string;
+    data: string;
+    create_dirs: boolean;
+}
+
+export interface FsBoolResponse {
+    value: boolean;
+}
+
+export interface FsStat {
+    exists: boolean;
+    is_file: boolean;
+    is_dir: boolean;
+    is_symlink: boolean;
+    readonly: boolean;
+    size: number;
+    modified_ms: number;
+    created_ms: number;
+    accessed_ms: number;
+    path: string;
+}
+
+export interface FsEntry {
+    name: string;
+    path: string;
+    is_file: boolean;
+    is_dir: boolean;
+    is_symlink: boolean;
+    size: number;
+    modified_ms: number;
+}
+
+export interface FsDirResponse {
+    entries: Array<FsEntry>;
+}
+
+export interface FsMkdirRequest {
+    path: string;
+    recursive: boolean;
+}
+
+export interface FsRemoveRequest {
+    path: string;
+    recursive: boolean;
+}
+
+export interface FsTransferRequest {
+    from: string;
+    to: string;
+    overwrite: boolean;
+}
+
+export interface FsWatchResponse {
+    id: number;
+}
+
+export interface FsWatchRequest {
+    path: string;
+    recursive: boolean;
+}
+
+export interface FsWatchIdRequest {
+    id: number;
+}
+
+export interface FsScopeInfo {
+    path: string;
+    label: string;
+    read_only: boolean;
+    recursive: boolean;
+}
+
+export interface FsScopesResponse {
+    scopes: Array<FsScopeInfo>;
+}
+
+export interface FsGrantResponse {
+    cancelled: boolean;
+    paths: Array<string>;
+}
+
+export interface FsGrantRequest {
+    title: string;
+    pick_folder: boolean;
+    allow_multiple: boolean;
+    read_only: boolean;
+}
+
+export interface LogWriteRequest {
+    level: string;
+    category: string;
+    message: string;
+}
+
+export interface MenuItemTemplate {
+    id: string;
+    label: string;
+    accelerator: string;
+    type: string;
+    role: string;
+    enabled: boolean;
+    checked: boolean;
+    visible: boolean;
+    group: string;
+    submenu: Array<MenuItemTemplate>;
+}
+
+export interface MenuTemplateRequest {
+    items: Array<MenuItemTemplate>;
+}
+
+export interface MenuBarEntryInfo {
+    index: number;
+    id: string;
+    label: string;
+    text: string;
+    mnemonic: string;
+    enabled: boolean;
+    has_submenu: boolean;
+}
+
+export interface MenuBarInfo {
+    mode: string;
+    entries: Array<MenuBarEntryInfo>;
+}
+
+export interface CssRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface MenuAnchorsRequest {
+    rects: Array<CssRect>;
+}
+
+export interface MenuPopupResult {
+    selected: boolean;
+    id: string;
+    checked: boolean;
+}
+
+export interface PopupApplicationMenuRequest {
+    id: string;
+    index: number;
+    rect?: CssRect | null;
+}
+
+export interface ContextMenuRequest {
+    items: Array<MenuItemTemplate>;
+    x?: number | null;
+    y?: number | null;
+}
+
+export interface MenuItemUpdate {
+    id: string;
+    target: string;
+    enabled?: boolean | null;
+    checked?: boolean | null;
+    visible?: boolean | null;
+    label?: string | null;
+    accelerator?: string | null;
+}
+
+export interface TrayShowRequest {
+    tooltip: string;
+    icon_base64: string;
+    menu: Array<MenuItemTemplate>;
+    menu_on_left_click: boolean;
+}
+
+export interface TrayTooltipRequest {
+    tooltip: string;
+}
+
+export interface TrayIconRequest {
+    icon_base64: string;
+}
+
+export interface ToastResponse {
+    ok: boolean;
+    used_fallback: boolean;
+    tag: string;
+    group: string;
+    error: string;
+}
+
+export interface ToastButtonSpec {
+    content: string;
+    arguments: string;
+    activation: string;
+    input_id: string;
+    image: string;
+    context_menu: boolean;
+}
+
+export interface ToastSelectionSpec {
+    id: string;
+    content: string;
+}
+
+export interface ToastInputSpec {
+    id: string;
+    title: string;
+    placeholder: string;
+    default_value: string;
+    options: Array<ToastSelectionSpec>;
+}
+
+export interface ToastProgressSpec {
+    title: string;
+    value?: number | null;
+    value_label: string;
+    status: string;
+}
+
+export interface ToastRequest {
+    title: string;
+    body: string;
+    attribution: string;
+    app_logo: string;
+    app_logo_circle: boolean;
+    hero_image: string;
+    inline_image: string;
+    launch_arguments: string;
+    buttons: Array<ToastButtonSpec>;
+    inputs: Array<ToastInputSpec>;
+    progress?: ToastProgressSpec | null;
+    scenario: string;
+    duration: string;
+    silent: boolean;
+    sound: string;
+    loop_sound: boolean;
+    tag: string;
+    group: string;
+    suppress_popup: boolean;
+    expires_after_seconds?: number | null;
+    fallback: boolean;
+    level: string;
+}
+
+export interface ShellResult {
+    ok: boolean;
+    error: string;
+}
+
+export interface ToastUpdateRequest {
+    tag: string;
+    group: string;
+    progress: ToastProgressSpec;
+}
+
+export interface ToastTargetRequest {
+    tag: string;
+    group: string;
+}
+
+export interface ToastSupportResponse {
+    supported: boolean;
+    app_user_model_id: string;
+    setting: string;
+}
+
+export interface PowerStatusResponse {
+    on_ac: boolean;
+    has_battery: boolean;
+    battery_percent?: number | null;
+    charging: boolean;
+    battery_saver: boolean;
+    battery_seconds_remaining?: number | null;
+    display: string;
+    session_locked: boolean;
+    idle_ms: number;
+}
+
+export interface IdleTimeResponse {
+    idle_ms: number;
+}
+
+export interface IdleStateResponse {
+    state: string;
+    idle_ms: number;
+}
+
+export interface IdleStateRequest {
+    threshold_seconds: number;
+}
+
+export interface PowerBlockerResponse {
+    id: number;
+    started: boolean;
+}
+
+export interface PowerBlockerRequest {
+    type: string;
+    reason: string;
+}
+
+export interface PowerBlockerIdRequest {
+    id: number;
+}
+
+export interface SafeStorageAvailability {
+    value: boolean;
+}
+
+export interface SafeStorageData {
+    data: string;
+}
+
+export interface SafeStorageText {
+    text: string;
+}
+
+export interface ScreenRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface Display {
+    id: string;
+    device_name: string;
+    label: string;
+    bounds: ScreenRect;
+    work_area: ScreenRect;
+    dpi: number;
+    scale_factor: number;
+    primary: boolean;
+    refresh_rate: number;
+    rotation: number;
+    bits_per_pixel: number;
+}
+
+export interface ScreenDisplaysResponse {
+    displays: Array<Display>;
+}
+
+export interface ScreenPoint {
+    x: number;
+    y: number;
+}
+
+export interface ShellUrlRequest {
+    url: string;
+}
+
+export interface ShellPathRequest {
+    path: string;
+}
+
+export interface ShellPathResponse {
+    path: string;
+}
+
+export interface ShellFolderRequest {
+    name: string;
+}
+
+export interface ShortcutRegisterResponse {
+    ok: boolean;
+    id: number;
+    accelerator: string;
+    error: string;
+    message: string;
+}
+
+export interface ShortcutRegisterRequest {
+    accelerator: string;
+}
+
+export interface ShortcutBoolResponse {
+    value: boolean;
+}
+
+export interface ShortcutIdRequest {
+    id: number;
+}
+
+export interface ShortcutAcceleratorRequest {
+    accelerator: string;
+}
+
+export interface ShortcutInfo {
+    id: number;
+    accelerator: string;
+}
+
+export interface ShortcutListResponse {
+    shortcuts: Array<ShortcutInfo>;
+}
+
+export interface TaskbarProgressRequest {
+    state: string;
+    value?: number | null;
+}
+
+export interface IconSpec {
+    badge: string;
+    stock: string;
+    glyph: number;
+    file: string;
+    background: string;
+    foreground: string;
+    size: number;
+}
+
+export interface TaskbarOverlayRequest {
+    icon: IconSpec;
+    description: string;
+}
+
+export interface TaskbarFlashRequest {
+    count: number;
+    until_foreground: boolean;
+    caption: boolean;
+    tray: boolean;
+    interval_ms: number;
+}
+
+export interface ThumbnailButtonSpec {
+    id: number;
+    icon: IconSpec;
+    tooltip: string;
+    enabled: boolean;
+    hidden: boolean;
+    dismiss_on_click: boolean;
+    no_background: boolean;
+}
+
+export interface ThumbnailButtonsRequest {
+    buttons: Array<ThumbnailButtonSpec>;
+}
+
+export interface ThumbnailTooltipRequest {
+    tooltip: string;
+}
+
+export interface ThumbnailClipRequest {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface JumpListResponse {
+    ok: boolean;
+    max_slots: number;
+    skipped_removed: number;
+    rejected_categories: Array<string>;
+    error: string;
+}
+
+export interface JumpListItemSpec {
+    title: string;
+    description: string;
+    arguments: string;
+    icon_path: string;
+    icon_index: number;
+    separator: boolean;
+}
+
+export interface JumpListCategorySpec {
+    name: string;
+    items: Array<JumpListItemSpec>;
+}
+
+export interface JumpListRequest {
+    tasks: Array<JumpListItemSpec>;
+    categories: Array<JumpListCategorySpec>;
+    show_recent: boolean;
+    show_frequent: boolean;
+}
+
+export interface RecentDocumentRequest {
+    path: string;
+}
+
+export interface TitlebarRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface TitlebarOverlayEvent {
+    visible: boolean;
+    titlebar_area: TitlebarRect;
+    buttons: TitlebarRect;
+    dpi: number;
+    rtl: boolean;
+    maximized: boolean;
+    active: boolean;
+}
+
+export interface TitlebarOverlayRequest {
+    enabled: boolean;
+    color: string;
+    symbol_color: string;
+    hover_color: string;
+    height: number;
+    button_width: number;
+    theme: string;
+    rtl?: boolean | null;
+}
+
+export interface SystemColorsDto {
+    window: string;
+    window_text: string;
+    highlight: string;
+    highlight_text: string;
+    button_face: string;
+    button_text: string;
+    gray_text: string;
+    hotlight: string;
+}
+
+export interface ThemeChangedEvent {
+    dark_mode: boolean;
+    system_dark_mode: boolean;
+    high_contrast: boolean;
+    high_contrast_scheme: string;
+    transparency_effects: boolean;
+    accent_on_title_bars: boolean;
+    accent: string;
+    accent_light: Array<string>;
+    accent_dark: Array<string>;
+    colors: SystemColorsDto;
+}
+
+export interface SystemMenuRequest {
+    x: number;
+    y: number;
+    at_cursor: boolean;
+}
+
+export interface TransferCapabilities {
+    mode: string;
+    shared_buffer: boolean;
+    max_upload_bytes: number;
+    stream_base_url: string;
+}
+
+export interface TransferStatsResponse {
+    buffers_created: number;
+    buffers_reused: number;
+    buffers_closed: number;
+    buffers_in_flight: number;
+    buffers_leased: number;
+    idle_buffers: number;
+    idle_bytes: number;
+    shared_sends: number;
+    base64_sends: number;
+    uploads: number;
+    ack_timeouts: number;
+}
+
+export interface UpdateCheckResponse {
+    ok: boolean;
+    error: string;
+    available: boolean;
+    newer: boolean;
+    mandatory: boolean;
+    in_rollout: boolean;
+    current_version: string;
+    version: string;
+    notes: string;
+    kind: string;
+    size?: number | null;
+}
+
+export interface UpdateStartedResponse {
+    started: boolean;
+    error: string;
+}
+
+export interface UpdateInstallResponse {
+    scheduled: boolean;
+    error: string;
+}
+
+export interface UpdateInstallRequest {
+    relaunch: boolean;
+    quit_now: boolean;
+}
+
+export interface UpdateStatusResponse {
+    state: string;
+    version: string;
+    error: string;
+    received: number;
+    total?: number | null;
+}
+
+export interface UpdateLastResultResponse {
+    has_result: boolean;
+    version: string;
+    success: boolean;
+    rolled_back: boolean;
+    error: string;
+    finished_at: string;
+}
+
+export interface OkResponse {
+    ok: boolean;
+}
+
+export interface PrintUiRequest {
+    kind: string;
+}
+
+export interface PrintResult {
+    ok: boolean;
+    status: string;
+}
+
+export interface PrintOptions {
+    orientation?: string | null;
+    scale_factor?: number | null;
+    page_width?: number | null;
+    page_height?: number | null;
+    margin_top?: number | null;
+    margin_bottom?: number | null;
+    margin_left?: number | null;
+    margin_right?: number | null;
+    print_backgrounds?: boolean | null;
+    selection_only?: boolean | null;
+    header_and_footer?: boolean | null;
+    header_title?: string | null;
+    footer_uri?: string | null;
+    page_ranges?: string | null;
+    pages_per_side?: number | null;
+    copies?: number | null;
+    collation?: string | null;
+    color_mode?: string | null;
+    duplex?: string | null;
+    printer_name?: string | null;
+}
+
+export interface PdfResult {
+    ok: boolean;
+    path: string;
+    data: string;
+    size: number;
+}
+
+export interface PrintToPdfRequest {
+    path: string;
+    settings: PrintOptions;
+}
+
+export interface CaptureResult {
+    mime_type: string;
+    data: string;
+    path: string;
+    size: number;
+}
+
+export interface CaptureRequest {
+    format: string;
+    path?: string | null;
+}
+
+export interface FindStatus {
+    match_count: number;
+    active_match_index: number;
+    active: boolean;
+}
+
+export interface FindRequest {
+    term: string;
+    case_sensitive: boolean;
+    whole_word: boolean;
+    highlight_all: boolean;
+    suppress_default_dialog: boolean;
+}
+
+export interface CookieData {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    expires?: number | null;
+    http_only: boolean;
+    secure: boolean;
+    same_site: string;
+    is_session: boolean;
+}
+
+export interface CookieQuery {
+    uri: string;
+}
+
+export interface DeleteCookiesRequest {
+    name: string;
+    uri?: string | null;
+    domain?: string | null;
+    path?: string | null;
+}
+
+export interface ClearDataRequest {
+    kinds: Array<string>;
+    start_time?: number | null;
+    end_time?: number | null;
+}
+
+export interface ProfileData {
+    name: string;
+    in_private: boolean;
+    path: string;
+    default_download_folder: string;
+    color_scheme: string;
+    tracking_prevention?: string | null;
+}
+
+export interface ColorSchemeRequest {
+    scheme: string;
+}
+
 export interface TickEvent {
     seq: number;
     timestamp_us: number;
@@ -105,6 +942,95 @@ export interface WindowStateEvent {
 export interface MaximizeButtonEvent {
     hovered: boolean;
     pressed: boolean;
+}
+
+export interface ClipboardChangedEvent {
+    sequence_number: number;
+    has_text: boolean;
+    has_html: boolean;
+    has_image: boolean;
+    has_files: boolean;
+}
+
+export interface ScreenChangedEvent {
+    reason: string;
+    displays: Array<Display>;
+    added: Array<string>;
+    removed: Array<string>;
+    changed: Array<string>;
+}
+
+export interface ShortcutTriggeredEvent {
+    id: number;
+    accelerator: string;
+}
+
+export interface MenuClickEvent {
+    id: string;
+    source: string;
+    checked: boolean;
+}
+
+export interface TrayClickEvent {
+    button: string;
+    x: number;
+    y: number;
+}
+
+export interface ThumbnailClickEvent {
+    id: number;
+}
+
+export interface ToastActivatedEvent {
+    tag: string;
+    group: string;
+    arguments: string;
+    user_input: Record<string, string>;
+    source: string;
+}
+
+export interface ToastDismissedEvent {
+    tag: string;
+    group: string;
+    reason: string;
+}
+
+export interface ToastFailedEvent {
+    tag: string;
+    group: string;
+    error: number;
+}
+
+export interface PowerEventPayload {
+    kind: string;
+    status: PowerStatusResponse;
+}
+
+export interface UpdateProgressEvent {
+    version: string;
+    received: number;
+    total?: number | null;
+    fraction: number;
+    bytes_per_second: number;
+}
+
+export interface UpdateResultEvent {
+    version: string;
+    ok: boolean;
+    cancelled: boolean;
+    error: string;
+}
+
+export interface FsChange {
+    kind: string;
+    path: string;
+}
+
+export interface FsChangeBatch {
+    id: number;
+    changes: Array<FsChange>;
+    overflow: boolean;
+    closed: boolean;
 }
 
 export interface BosonApi {
@@ -134,10 +1060,157 @@ export interface BosonApi {
     "App.get_system_info": () => Promise<SystemInfo>;
     "App.compute_primes": (params: ComputePrimesRequest) => Promise<ComputePrimesResult>;
     "App.trigger_error": () => Promise<void>;
+    "AutoLaunch.status": () => Promise<AutoLaunchStatusResponse>;
+    "AutoLaunch.enable": (params: AutoLaunchEnableRequest) => Promise<AutoLaunchStatusResponse>;
+    "AutoLaunch.disable": () => Promise<AutoLaunchStatusResponse>;
+    "Clipboard.read_text": () => Promise<ClipboardTextResponse>;
+    "Clipboard.write_text": (params: ClipboardTextRequest) => Promise<void>;
+    "Clipboard.read_html": () => Promise<ClipboardHtmlResponse>;
+    "Clipboard.write_html": (params: ClipboardHtmlRequest) => Promise<void>;
+    "Clipboard.read_image": () => Promise<ClipboardImageResponse>;
+    "Clipboard.write_image": (params: ClipboardImageRequest) => Promise<void>;
+    "Clipboard.read_files": () => Promise<ClipboardFilesResponse>;
+    "Clipboard.write_files": (params: ClipboardFilesRequest) => Promise<void>;
+    "Clipboard.clear": () => Promise<void>;
+    "Clipboard.formats": () => Promise<ClipboardFormatsResponse>;
+    "Clipboard.has": (params: ClipboardHasRequest) => Promise<ClipboardBoolResponse>;
+    "Credential.set": (params: CredentialSetRequest) => Promise<void>;
+    "Credential.get": (params: CredentialKeyRequest) => Promise<CredentialGetResponse>;
+    "Credential.remove": (params: CredentialKeyRequest) => Promise<CredentialRemoveResponse>;
+    "Credential.list": () => Promise<CredentialListResponse>;
+    "Fs.read_text": (params: FsPathRequest) => Promise<FsTextResponse>;
+    "Fs.read_bytes": (params: FsPathRequest) => Promise<FsBytesResponse>;
+    "Fs.write_text": (params: FsWriteTextRequest) => Promise<void>;
+    "Fs.write_bytes": (params: FsWriteBytesRequest) => Promise<void>;
+    "Fs.append": (params: FsWriteTextRequest) => Promise<void>;
+    "Fs.exists": (params: FsPathRequest) => Promise<FsBoolResponse>;
+    "Fs.stat": (params: FsPathRequest) => Promise<FsStat>;
+    "Fs.read_dir": (params: FsPathRequest) => Promise<FsDirResponse>;
+    "Fs.mkdir": (params: FsMkdirRequest) => Promise<void>;
+    "Fs.remove": (params: FsRemoveRequest) => Promise<void>;
+    "Fs.rename": (params: FsTransferRequest) => Promise<void>;
+    "Fs.copy": (params: FsTransferRequest) => Promise<void>;
+    "Fs.watch": (params: FsWatchRequest) => Promise<FsWatchResponse>;
+    "Fs.unwatch": (params: FsWatchIdRequest) => Promise<FsBoolResponse>;
+    "Fs.scopes": () => Promise<FsScopesResponse>;
+    "Fs.grant_from_dialog": (params: FsGrantRequest) => Promise<FsGrantResponse>;
+    "Log.write": (params: LogWriteRequest) => Promise<void>;
+    "Menu.set_application_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
+    "Menu.clear_application_menu": () => Promise<void>;
+    "Menu.get_application_menu": () => Promise<MenuBarInfo>;
+    "Menu.set_application_menu_anchors": (params: MenuAnchorsRequest) => Promise<void>;
+    "Menu.popup_application_menu": (params: PopupApplicationMenuRequest) => Promise<MenuPopupResult>;
+    "Menu.popup_context_menu": (params: ContextMenuRequest) => Promise<MenuPopupResult>;
+    "Menu.update_menu_item": (params: MenuItemUpdate) => Promise<BoolResponse>;
+    "Menu.tray_show": (params: TrayShowRequest) => Promise<BoolResponse>;
+    "Menu.tray_hide": () => Promise<void>;
+    "Menu.tray_set_menu": (params: MenuTemplateRequest) => Promise<BoolResponse>;
+    "Menu.tray_set_tooltip": (params: TrayTooltipRequest) => Promise<BoolResponse>;
+    "Menu.tray_set_icon": (params: TrayIconRequest) => Promise<BoolResponse>;
+    "Menu.tray_show_balloon": (params: NotifyRequest) => Promise<BoolResponse>;
+    "Notification.show": (params: ToastRequest) => Promise<ToastResponse>;
+    "Notification.update_progress": (params: ToastUpdateRequest) => Promise<ShellResult>;
+    "Notification.hide": (params: ToastTargetRequest) => Promise<ShellResult>;
+    "Notification.remove": (params: ToastTargetRequest) => Promise<ShellResult>;
+    "Notification.clear_all": () => Promise<ShellResult>;
+    "Notification.support": () => Promise<ToastSupportResponse>;
+    "Power.status": () => Promise<PowerStatusResponse>;
+    "Power.idle_time": () => Promise<IdleTimeResponse>;
+    "Power.idle_state": (params: IdleStateRequest) => Promise<IdleStateResponse>;
+    "Power.start_blocker": (params: PowerBlockerRequest) => Promise<PowerBlockerResponse>;
+    "Power.stop_blocker": (params: PowerBlockerIdRequest) => Promise<ShellResult>;
+    "Power.is_blocker_started": (params: PowerBlockerIdRequest) => Promise<PowerBlockerResponse>;
+    "SafeStorage.is_available": () => Promise<SafeStorageAvailability>;
+    "SafeStorage.encrypt_string": (params: SafeStorageText) => Promise<SafeStorageData>;
+    "SafeStorage.decrypt_string": (params: SafeStorageData) => Promise<SafeStorageText>;
+    "SafeStorage.encrypt_bytes": (params: SafeStorageData) => Promise<SafeStorageData>;
+    "SafeStorage.decrypt_bytes": (params: SafeStorageData) => Promise<SafeStorageData>;
+    "Screen.get_all_displays": () => Promise<ScreenDisplaysResponse>;
+    "Screen.get_primary_display": () => Promise<Display>;
+    "Screen.get_display_nearest_point": (params: ScreenPoint) => Promise<Display>;
+    "Screen.get_display_matching": (params: ScreenRect) => Promise<Display>;
+    "Screen.get_window_display": () => Promise<Display>;
+    "Screen.get_cursor_screen_point": () => Promise<ScreenPoint>;
+    "Shell.open_external": (params: ShellUrlRequest) => Promise<void>;
+    "Shell.open_path": (params: ShellPathRequest) => Promise<void>;
+    "Shell.show_item_in_folder": (params: ShellPathRequest) => Promise<void>;
+    "Shell.move_to_trash": (params: ShellPathRequest) => Promise<void>;
+    "Shell.get_known_folder": (params: ShellFolderRequest) => Promise<ShellPathResponse>;
+    "Shortcut.register": (params: ShortcutRegisterRequest) => Promise<ShortcutRegisterResponse>;
+    "Shortcut.unregister": (params: ShortcutIdRequest) => Promise<ShortcutBoolResponse>;
+    "Shortcut.unregister_all": () => Promise<void>;
+    "Shortcut.is_registered": (params: ShortcutAcceleratorRequest) => Promise<ShortcutBoolResponse>;
+    "Shortcut.list": () => Promise<ShortcutListResponse>;
+    "Taskbar.set_progress": (params: TaskbarProgressRequest) => Promise<ShellResult>;
+    "Taskbar.clear_progress": () => Promise<ShellResult>;
+    "Taskbar.set_overlay": (params: TaskbarOverlayRequest) => Promise<ShellResult>;
+    "Taskbar.clear_overlay": () => Promise<ShellResult>;
+    "Taskbar.flash": (params: TaskbarFlashRequest) => Promise<ShellResult>;
+    "Taskbar.stop_flash": () => Promise<ShellResult>;
+    "Taskbar.set_thumbnail_buttons": (params: ThumbnailButtonsRequest) => Promise<ShellResult>;
+    "Taskbar.set_thumbnail_tooltip": (params: ThumbnailTooltipRequest) => Promise<ShellResult>;
+    "Taskbar.set_thumbnail_clip": (params: ThumbnailClipRequest) => Promise<ShellResult>;
+    "Taskbar.set_jump_list": (params: JumpListRequest) => Promise<JumpListResponse>;
+    "Taskbar.clear_jump_list": () => Promise<ShellResult>;
+    "Taskbar.add_recent_document": (params: RecentDocumentRequest) => Promise<ShellResult>;
+    "Taskbar.clear_recent_documents": () => Promise<ShellResult>;
+    "Titlebar.set_overlay": (params: TitlebarOverlayRequest) => Promise<TitlebarOverlayEvent>;
+    "Titlebar.get_overlay": () => Promise<TitlebarOverlayEvent>;
+    "Titlebar.get_theme": () => Promise<ThemeChangedEvent>;
+    "Titlebar.show_system_menu": (params: SystemMenuRequest) => Promise<void>;
+    "Transfer.capabilities": () => Promise<TransferCapabilities>;
+    "Transfer.stats": () => Promise<TransferStatsResponse>;
+    "Updater.check": () => Promise<UpdateCheckResponse>;
+    "Updater.download": () => Promise<UpdateStartedResponse>;
+    "Updater.cancel": () => Promise<void>;
+    "Updater.install": (params: UpdateInstallRequest) => Promise<UpdateInstallResponse>;
+    "Updater.status": () => Promise<UpdateStatusResponse>;
+    "Updater.last_result": () => Promise<UpdateLastResultResponse>;
+    "WebView.show_print_ui": (params: PrintUiRequest) => Promise<OkResponse>;
+    "WebView.print": (params: PrintOptions) => Promise<PrintResult>;
+    "WebView.print_to_pdf": (params: PrintToPdfRequest) => Promise<PdfResult>;
+    "WebView.print_to_pdf_data": (params: PrintOptions) => Promise<PdfResult>;
+    "WebView.capture": (params: CaptureRequest) => Promise<CaptureResult>;
+    "WebView.find_start": (params: FindRequest) => Promise<FindStatus>;
+    "WebView.find_next": () => Promise<FindStatus>;
+    "WebView.find_previous": () => Promise<FindStatus>;
+    "WebView.find_stop": () => Promise<FindStatus>;
+    "WebView.find_status": () => Promise<FindStatus>;
+    "WebView.get_cookies": (params: CookieQuery) => Promise<Array<CookieData>>;
+    "WebView.set_cookie": (params: CookieData) => Promise<OkResponse>;
+    "WebView.delete_cookies": (params: DeleteCookiesRequest) => Promise<OkResponse>;
+    "WebView.delete_all_cookies": () => Promise<OkResponse>;
+    "WebView.clear_data": (params: ClearDataRequest) => Promise<OkResponse>;
+    "WebView.get_profile": () => Promise<ProfileData>;
+    "WebView.set_color_scheme": (params: ColorSchemeRequest) => Promise<OkResponse>;
 }
 
 export interface BosonEvents {
     "app:tick": TickEvent;
     "window:state": WindowStateEvent;
     "window:maximize-button": MaximizeButtonEvent;
+    "clipboard:changed": ClipboardChangedEvent;
+    "screen:changed": ScreenChangedEvent;
+    "shortcut:triggered": ShortcutTriggeredEvent;
+    "menu:click": MenuClickEvent;
+    "tray:click": TrayClickEvent;
+    "taskbar:thumbnail-click": ThumbnailClickEvent;
+    "notification:activated": ToastActivatedEvent;
+    "notification:dismissed": ToastDismissedEvent;
+    "notification:failed": ToastFailedEvent;
+    "power:suspend": PowerEventPayload;
+    "power:resume": PowerEventPayload;
+    "power:source-changed": PowerEventPayload;
+    "power:battery-changed": PowerEventPayload;
+    "power:battery-saver-changed": PowerEventPayload;
+    "power:display-changed": PowerEventPayload;
+    "power:lock": PowerEventPayload;
+    "power:unlock": PowerEventPayload;
+    "titlebar:overlay": TitlebarOverlayEvent;
+    "theme:changed": ThemeChangedEvent;
+    "updater:progress": UpdateProgressEvent;
+    "updater:downloaded": UpdateResultEvent;
+    "updater:error": UpdateResultEvent;
+    "fs:changed": FsChangeBatch;
+    "webview:find": FindStatus;
 }

@@ -396,6 +396,25 @@ void test_images() {
 
 // ==== System clipboard ====================================================================================
 
+/// Another process (clipboard history, cross-device sync, clipboard managers) may empty and re-post the
+/// clipboard right after every write. Wait until the sequence number has been stable for 150 ms before
+/// reading back, so the round-trip checks test Boson and not the timing of those processes.
+void settle_clipboard() {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{3};
+    DWORD seq = GetClipboardSequenceNumber();
+    auto stable_since = std::chrono::steady_clock::now();
+    while (std::chrono::steady_clock::now() < deadline) {
+        Sleep(10);
+        const DWORD now_seq = GetClipboardSequenceNumber();
+        if (now_seq != seq) {
+            seq = now_seq;
+            stable_since = std::chrono::steady_clock::now();
+        } else if (std::chrono::steady_clock::now() - stable_since >= std::chrono::milliseconds{150}) {
+            return;
+        }
+    }
+}
+
 void test_clipboard() {
     step("system clipboard (contents saved and restored)");
     using namespace boson::desktop;
@@ -412,6 +431,7 @@ void test_clipboard() {
     const Clipboard clipboard;
     const std::string text = "Boson \xE2\x9C\x93 clipboard \xF0\x9F\x9A\x80";
     DT_CHECK(clipboard.write_text(text).has_value());
+    settle_clipboard();
     const auto read = clipboard.read_text();
     DT_CHECK(read.has_value() && read->has_value() && **read == text);
     DT_CHECK(Clipboard::has_format("text") && Clipboard::has_format("CF_UNICODETEXT"));
@@ -420,6 +440,7 @@ void test_clipboard() {
 
     const std::string html = "<p>Hello <b>world</b> \xC3\xA9</p>";
     DT_CHECK(clipboard.write_html(html, std::string_view{"Hello world"}).has_value());
+    settle_clipboard();
     const auto read_html = clipboard.read_html();
     DT_CHECK(read_html.has_value() && read_html->has_value() && (*read_html)->fragment == html);
     const auto alt = clipboard.read_text();
@@ -440,6 +461,7 @@ void test_clipboard() {
     DT_CHECK(png.has_value());
     if (png) {
         DT_CHECK(clipboard.write_image_png(*png).has_value());
+        settle_clipboard();
         DT_CHECK(Clipboard::has_format("image") && Clipboard::has_format("CF_DIBV5") && Clipboard::has_format("PNG"));
         const auto image = clipboard.read_image_png();
         DT_CHECK(image.has_value() && image->has_value());
@@ -457,6 +479,7 @@ void test_clipboard() {
                 GlobalFree(global);
             }
             CloseClipboard();
+            settle_clipboard();
             const auto from_dib = clipboard.read_image_png();
             DT_CHECK(from_dib.has_value() && from_dib->has_value());
             if (from_dib && *from_dib) {
@@ -472,6 +495,7 @@ void test_clipboard() {
         std::ofstream(f) << "x";
     }
     DT_CHECK(clipboard.write_files(files).has_value());
+    settle_clipboard();
     const auto read_files = clipboard.read_files();
     DT_CHECK(read_files.has_value() && read_files->has_value() && (*read_files)->size() == 2);
     if (read_files && *read_files && (*read_files)->size() == 2) {
@@ -480,10 +504,12 @@ void test_clipboard() {
     DT_CHECK(Clipboard::has_format("files") && Clipboard::has_format("Preferred DropEffect"));
 
     DT_CHECK(clipboard.write_text("secret", {.exclude_from_history = true}).has_value());
+    settle_clipboard();
     DT_CHECK(Clipboard::has_format("ExcludeClipboardContentFromMonitorProcessing"));
     DT_CHECK(Clipboard::has_format("CanIncludeInClipboardHistory"));
 
     DT_CHECK(clipboard.clear().has_value());
+    settle_clipboard();
     const auto empty = clipboard.read_text();
     DT_CHECK(empty.has_value() && !empty->has_value());
     const auto no_image = clipboard.read_image_png();
@@ -498,6 +524,7 @@ void test_clipboard() {
     boson::ipc::ClipboardController controller;
     boson::ipc::Router<boson::ipc::ClipboardController> router(controller);
     DT_CHECK(is_success(router.dispatch_sync(json_for("Clipboard.write_text", R"({"text":"via rpc"})"))));
+    settle_clipboard();
     const auto rpc_read = router.dispatch_sync(json_for("Clipboard.read_text"));
     DT_CHECK(rpc_read.find(R"("text":"via rpc")") != std::string::npos);
     const auto rpc_has = router.dispatch_sync(json_for("Clipboard.has", R"({"format":"text"})"));
@@ -505,6 +532,7 @@ void test_clipboard() {
     if (png) {
         const std::string params = R"({"png_base64":")" + base64_encode(*png) + R"("})";
         DT_CHECK(is_success(router.dispatch_sync(json_for("Clipboard.write_image", params))));
+        settle_clipboard();
         const auto rpc_image = router.dispatch_sync(json_for("Clipboard.read_image"));
         DT_CHECK(rpc_image.find(R"("available":true)") != std::string::npos && rpc_image.find(R"("width":3)") != std::string::npos);
     }

@@ -1089,7 +1089,7 @@ void test_tsgen() {
     MT_CHECK(dts.find("submenu: Array<MenuItemTemplate>") != std::string::npos);
     MT_CHECK(dts.find("popup_context_menu") != std::string::npos);
     MT_CHECK(dts.find("menu:click") != std::string::npos && dts.find("tray:click") != std::string::npos);
-    if (const char* dump = std::getenv("BOSON_MENU_DUMP_DTS"); dump != nullptr) {
+    if (GetEnvironmentVariableW(L"BOSON_MENU_DUMP_DTS", nullptr, 0) != 0) {
         std::cout << dts;
     }
 }

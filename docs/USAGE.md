@@ -418,3 +418,21 @@ boson::app::relaunch({.extra_args = {L"--screenshare"}, .remove_args = {L"--scre
 - `boson_tests`: unit tests (no WebView2 runtime needed).
 - `boson_integration_tests` runs against the installed runtime and opens two small windows. It covers the shared environment and process info, multi-WebView layout, navigation and history, scripts, the bridge (replies, worker-thread emits, origin filtering), suspend/resume and `SleepPolicy`, `window.open` into a Boson WebView, Snap Layouts hit testing, composition hosting with app-region, `Environment::recreate` and graceful shutdown. `ctest -L integration` runs only this test.
 - `boson_browser [--composition] [--screenshare] [url...]` is a multi-tab browser built on all of the above. Set `BOSON_BROWSER_LOG=<file>` to capture its event log.
+
+## 19. Platform Modules
+
+Each module has its own guide with API, examples and an honest verification section. Every JS-facing module is a controller you add to your `Router`; `boson_tsgen` generates types for all of them (`TsGenerator::EventMaps<...>` combines event maps, `ipc::AllBosonEvents` lists the built-in ones).
+
+| Module | Guide | Controllers (JS name) | Events |
+|---|---|---|---|
+| Menus, tray, accelerators | [MENU.md](MENU.md) | `Menu` | `menu:click`, `tray:click` |
+| Clipboard, shell, shortcuts, deep links, screen, window state | [DESKTOP.md](DESKTOP.md) | `Clipboard`, `Shell`, `Screen`, `Shortcut` | `clipboard:changed`, `screen:changed`, `shortcut:triggered` |
+| File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
+| Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
+| Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
+| Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
+| Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
+| Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
+| Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
+
+Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.

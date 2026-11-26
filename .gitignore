@@ -20,3 +20,7 @@ out/
 frontend/node_modules/
 frontend/dist/
 frontend/package-lock.json
+
+# Claude Code agent worktrees and local helper scripts
+.claude/worktrees/
+.claude/agent-tools/

@@ -3,6 +3,24 @@
 #include <iostream>
 #include <string>
 
+#include <boson/ipc/controllers/auto_launch_controller.hpp>
+#include <boson/ipc/controllers/clipboard_controller.hpp>
+#include <boson/ipc/controllers/credential_controller.hpp>
+#include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/log_controller.hpp>
+#include <boson/ipc/controllers/menu_controller.hpp>
+#include <boson/ipc/controllers/notification_controller.hpp>
+#include <boson/ipc/controllers/power_controller.hpp>
+#include <boson/ipc/controllers/safe_storage_controller.hpp>
+#include <boson/ipc/controllers/screen_controller.hpp>
+#include <boson/ipc/controllers/shell_controller.hpp>
+#include <boson/ipc/controllers/shortcut_controller.hpp>
+#include <boson/ipc/controllers/taskbar_controller.hpp>
+#include <boson/ipc/controllers/titlebar_controller.hpp>
+#include <boson/ipc/controllers/transfer_controller.hpp>
+#include <boson/ipc/controllers/updater_controller.hpp>
+#include <boson/ipc/controllers/webview_controller.hpp>
+#include <boson/ipc/controllers/platform_events.hpp>
 #include <boson/ipc/system_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
@@ -10,10 +28,28 @@
 #include "../../examples/demo/demo_events.hpp"
 
 int main(int argc, char** argv) {
-    const std::string dts = boson::ipc::TsGenerator::generate_with_events<
-        boson::demo::DemoEvents,
-        boson::ipc::SystemController,
-        boson::demo::AppController>();
+    using namespace boson::ipc;
+    const std::string dts = TsGenerator::generate_with_events<
+        TsGenerator::EventMaps<boson::demo::DemoEvents, DesktopEvents, MenuEvents, ShellIntegrationEvents, PlatformEvents>,
+        SystemController,
+        boson::demo::AppController,
+        AutoLaunchController,
+        ClipboardController,
+        CredentialController,
+        FsController,
+        LogController,
+        MenuController,
+        NotificationController,
+        PowerController,
+        SafeStorageController,
+        ScreenController,
+        ShellController,
+        ShortcutController,
+        TaskbarController,
+        TitlebarController,
+        TransferController,
+        UpdaterController,
+        WebViewController>();
 
     if (argc > 1) {
         const std::filesystem::path out_path{argv[1]};
