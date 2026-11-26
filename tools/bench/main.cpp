@@ -5,6 +5,8 @@
 //   boson_bench --exe build\wt\boson_bench_app.exe --name boson_bench_app --wait-ready --load-signal
 //   boson_bench --exe "C:\path\MyElectronApp.exe" --name electron --idle 30 -- --some-app-flag
 //   boson_bench --compare bench-results\a.json bench-results\b.json [--out table.md]
+//   boson_bench --scenario browser --target boson=build\rel\boson_browser.exe --target wails=bench\wails_browser\bin\wails_browser.exe
+//               (multi-tab browser comparison, see tools/bench/scenario.hpp and docs/BENCHMARKS.md)
 #include <windows.h>
 #include <objbase.h>
 #include <WebView2.h>
@@ -14,6 +16,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -25,6 +28,7 @@
 #include <glaze/glaze.hpp>
 
 #include "bench_core.hpp"
+#include "scenario.hpp"
 
 namespace fs = std::filesystem;
 using namespace boson::bench;
@@ -299,9 +303,97 @@ BOOL CALLBACK collect_windows(HWND hwnd, LPARAM param) {
     return ss.str();
 }
 
-/// The app writes "<QueryPerformanceCounter value>" into BOSON_BENCH_DIR/ready once its first frame is up.
-[[nodiscard]] std::optional<LONGLONG> read_ready_stamp(const fs::path& dir) {
-    const auto text = read_file(dir / "ready");
+struct LaunchedTree {
+    UniqueHandle job;
+    UniqueHandle process;
+    DWORD root_pid = 0;
+    LONGLONG t0 = 0; ///< QPC just before CreateProcessW
+    std::string error;
+};
+
+/// @brief Starts exe (suspended, inside a kill-on-close job, SW_SHOWNOACTIVATE) with BOSON_BENCH_DIR=bench_dir.
+[[nodiscard]] LaunchedTree launch_tree(const fs::path& exe, const std::vector<std::wstring>& args, const fs::path& bench_dir) {
+    LaunchedTree out;
+    out.job.reset(::CreateJobObjectW(nullptr, nullptr));
+    if (out.job) {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; // nothing outlives the harness
+        ::SetInformationJobObject(out.job.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
+    ::SetEnvironmentVariableW(L"BOSON_BENCH_DIR", bench_dir.wstring().c_str());
+
+    std::wstring cmd = quote_arg(exe.wstring());
+    for (const auto& arg : args) {
+        cmd += L' ';
+        cmd += quote_arg(arg);
+    }
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_SHOWNOACTIVATE; // never steal focus from the user / other tests
+    PROCESS_INFORMATION pi{};
+    const std::wstring cwd = exe.parent_path().wstring();
+    out.t0 = qpc_now();
+    const BOOL ok = ::CreateProcessW(exe.wstring().c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, cwd.c_str(), &si, &pi);
+    ::SetEnvironmentVariableW(L"BOSON_BENCH_DIR", nullptr);
+    if (ok == FALSE) {
+        out.error = "CreateProcessW failed with error " + std::to_string(::GetLastError());
+        return out;
+    }
+    out.process.reset(pi.hProcess);
+    const UniqueHandle thread{pi.hThread};
+    if (out.job && ::AssignProcessToJobObject(out.job.get(), pi.hProcess) == FALSE) {
+        std::cerr << "warning: AssignProcessToJobObject failed (" << ::GetLastError() << "); relying on the parent-PID walk\n";
+    }
+    ::ResumeThread(thread.get());
+    out.root_pid = pi.dwProcessId;
+    return out;
+}
+
+struct CloseOutcome {
+    std::optional<double> shutdown_ms;
+    bool forced_kill = false;
+};
+
+/// @brief WM_CLOSE to the root's windows, then waits up to 20 s for the whole tree to exit (killed after that).
+CloseOutcome close_tree(ProcessTreeSampler& sampler, DWORD root_pid, HANDLE job, LONGLONG t0, const std::function<void(Sample)>& on_sample) {
+    CloseOutcome out;
+    const auto now_ms = [t0]() { return qpc_ms(t0, qpc_now()); };
+    const double start = now_ms();
+    std::vector<DWORD> root_only{root_pid};
+    auto windows = top_level_windows(root_only, true);
+    if (windows.empty()) {
+        windows = top_level_windows(sampler.live_pids(), true);
+    }
+    for (HWND hwnd : windows) {
+        ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    }
+    const double deadline = start + 20'000.0;
+    while (now_ms() < deadline) {
+        on_sample(sampler.sample(now_ms(), "shutdown"));
+        if (sampler.live_pids().empty()) {
+            out.shutdown_ms = now_ms() - start;
+            return out;
+        }
+        ::Sleep(50);
+    }
+    out.forced_kill = true;
+    if (job != nullptr) {
+        ::TerminateJobObject(job, 1);
+    }
+    for (const DWORD pid : sampler.live_pids()) { // processes that broke away from the job
+        const UniqueHandle process{::OpenProcess(PROCESS_TERMINATE, FALSE, pid)};
+        if (process) {
+            ::TerminateProcess(process.get(), 1);
+        }
+    }
+    on_sample(sampler.sample(now_ms(), "shutdown"));
+    return out;
+}
+
+/// The app writes "<QueryPerformanceCounter value>" into BOSON_BENCH_DIR/<name> (ready, shell_paint, first_nav).
+[[nodiscard]] std::optional<LONGLONG> read_stamp(const fs::path& dir, std::wstring_view name) {
+    const auto text = read_file(dir / name);
     if (!text || text->empty()) {
         return std::nullopt;
     }
@@ -311,6 +403,9 @@ BOOL CALLBACK collect_windows(HWND hwnd, LPARAM param) {
         return std::nullopt;
     }
 }
+
+/// The app writes "<QueryPerformanceCounter value>" into BOSON_BENCH_DIR/ready once its first frame is up.
+[[nodiscard]] std::optional<LONGLONG> read_ready_stamp(const fs::path& dir) { return read_stamp(dir, L"ready"); }
 
 class Run {
 public:
@@ -358,40 +453,15 @@ private:
     }
 
     bool launch() {
-        m_job.reset(::CreateJobObjectW(nullptr, nullptr));
-        if (m_job) {
-            JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
-            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE; // nothing outlives the harness
-            ::SetInformationJobObject(m_job.get(), JobObjectExtendedLimitInformation, &limits, sizeof(limits));
-        }
-        ::SetEnvironmentVariableW(L"BOSON_BENCH_DIR", m_dir.wstring().c_str());
-
-        std::wstring cmd = quote_arg(m_options.exe.wstring());
-        for (const auto& arg : m_options.args) {
-            cmd += L' ';
-            cmd += quote_arg(arg);
-        }
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_SHOWNOACTIVATE; // never steal focus from the user / other tests
-        PROCESS_INFORMATION pi{};
-        const std::wstring cwd = m_options.exe.parent_path().wstring();
-        m_t0 = qpc_now();
-        const BOOL ok = ::CreateProcessW(
-            m_options.exe.wstring().c_str(), cmd.data(), nullptr, nullptr, FALSE, CREATE_SUSPENDED, nullptr, cwd.c_str(), &si, &pi);
-        ::SetEnvironmentVariableW(L"BOSON_BENCH_DIR", nullptr);
-        if (ok == FALSE) {
-            m_result.error = "CreateProcessW failed with error " + std::to_string(::GetLastError());
+        LaunchedTree tree = launch_tree(m_options.exe, m_options.args, m_dir);
+        if (!tree.error.empty()) {
+            m_result.error = std::move(tree.error);
             return false;
         }
-        m_process.reset(pi.hProcess);
-        const UniqueHandle thread{pi.hThread};
-        if (m_job && ::AssignProcessToJobObject(m_job.get(), pi.hProcess) == FALSE) {
-            std::cerr << "warning: AssignProcessToJobObject failed (" << ::GetLastError() << "); relying on the parent-PID walk\n";
-        }
-        ::ResumeThread(thread.get());
-        m_root_pid = pi.dwProcessId;
+        m_job = std::move(tree.job);
+        m_process = std::move(tree.process);
+        m_root_pid = tree.root_pid;
+        m_t0 = tree.t0;
         m_sampler.emplace(m_root_pid, m_job.get());
         return true;
     }
@@ -526,35 +596,9 @@ private:
         if (!m_sampler) {
             return;
         }
-        const double start = now_ms();
-        std::vector<DWORD> root_only{m_root_pid};
-        auto windows = top_level_windows(root_only, true);
-        if (windows.empty()) {
-            windows = top_level_windows(m_sampler->live_pids(), true);
-        }
-        for (HWND hwnd : windows) {
-            ::PostMessageW(hwnd, WM_CLOSE, 0, 0);
-        }
-        const double deadline = start + 20'000.0;
-        while (now_ms() < deadline) {
-            m_result.samples.push_back(m_sampler->sample(now_ms(), "shutdown"));
-            if (!tree_alive()) {
-                m_result.shutdown_ms = now_ms() - start;
-                return;
-            }
-            ::Sleep(50);
-        }
-        m_result.forced_kill = true;
-        if (m_job) {
-            ::TerminateJobObject(m_job.get(), 1);
-        }
-        for (const DWORD pid : m_sampler->live_pids()) { // processes that broke away from the job
-            const UniqueHandle process{::OpenProcess(PROCESS_TERMINATE, FALSE, pid)};
-            if (process) {
-                ::TerminateProcess(process.get(), 1);
-            }
-        }
-        m_result.samples.push_back(m_sampler->sample(now_ms(), "shutdown"));
+        const CloseOutcome outcome = close_tree(*m_sampler, m_root_pid, m_job.get(), m_t0, [this](Sample s) { m_result.samples.push_back(std::move(s)); });
+        m_result.shutdown_ms = outcome.shutdown_ms;
+        m_result.forced_kill = outcome.forced_kill;
     }
 
     const Options& m_options;
@@ -588,12 +632,341 @@ int compare(const Options& options) {
     return 0;
 }
 
+
+// ---- --scenario browser ------------------------------------------------------------------------------------
+
+namespace scn = boson::bench::scenario;
+
+struct ScenarioTarget {
+    std::string name;
+    fs::path exe;
+    std::vector<std::wstring> args;
+};
+
+struct ScenarioOptions {
+    std::vector<ScenarioTarget> targets;
+    fs::path out_dir = "bench-results";
+    std::uint32_t runs = 3;
+    std::uint32_t warmup = 1;
+    double settle_s = 2.0;
+    double run_timeout_s = 300.0;
+    double between_runs_s = 3.0;
+    std::vector<fs::path> compare;
+    std::optional<fs::path> compare_out;
+};
+
+constexpr std::wstring_view kScenarioUsage =
+    L"  boson_bench --scenario browser --target <name>=<exe> [--target ...] [--target-arg <name>=<arg>]...\n"
+    L"              [--runs N] [--warmup N] [--out <dir>] [--checkpoint-settle S] [--run-timeout S] [--cooldown S]\n"
+    L"  boson_bench --compare-scenario <report.scenario.json>... [--out <file.md>]\n";
+
+[[nodiscard]] std::optional<ScenarioOptions> parse_scenario(int argc, wchar_t** argv) {
+    ScenarioOptions o;
+    bool compare_mode = false;
+    for (int i = 1; i < argc; ++i) {
+        const std::wstring_view a{argv[i]};
+        const auto next = [&]() -> std::optional<std::wstring_view> {
+            if (i + 1 >= argc) return std::nullopt;
+            return std::wstring_view{argv[++i]};
+        };
+        const auto next_number = [&](double& dst) {
+            const auto v = next();
+            const auto n = v ? to_number(*v) : std::nullopt;
+            if (!n) return false;
+            dst = *n;
+            return true;
+        };
+        const auto split = [](std::wstring_view v) -> std::optional<std::pair<std::wstring, std::wstring>> {
+            const std::size_t eq = v.find(L'=');
+            if (eq == std::wstring_view::npos || eq == 0) return std::nullopt;
+            return std::pair{std::wstring{v.substr(0, eq)}, std::wstring{v.substr(eq + 1)}};
+        };
+        if (a == L"--scenario") {
+            const auto v = next();
+            if (!v || *v != L"browser") return std::nullopt;
+        } else if (a == L"--compare-scenario") {
+            compare_mode = true;
+        } else if (a == L"--target") {
+            const auto v = next();
+            const auto kv = v ? split(*v) : std::nullopt;
+            if (!kv) return std::nullopt;
+            std::error_code ec;
+            o.targets.push_back(ScenarioTarget{.name = narrow(kv->first), .exe = fs::absolute(fs::path{kv->second}, ec), .args = {}});
+        } else if (a == L"--target-arg") {
+            const auto v = next();
+            const auto kv = v ? split(*v) : std::nullopt;
+            if (!kv) return std::nullopt;
+            const std::string name = narrow(kv->first);
+            const auto it = std::ranges::find_if(o.targets, [&](const ScenarioTarget& t) { return t.name == name; });
+            if (it == o.targets.end()) return std::nullopt;
+            it->args.push_back(kv->second);
+        } else if (a == L"--out") {
+            const auto v = next();
+            if (!v) return std::nullopt;
+            o.out_dir = fs::path{std::wstring{*v}};
+            o.compare_out = o.out_dir;
+        } else if (a == L"--runs") {
+            double n = 0;
+            if (!next_number(n) || n < 1) return std::nullopt;
+            o.runs = static_cast<std::uint32_t>(n);
+        } else if (a == L"--warmup") {
+            double n = 0;
+            if (!next_number(n)) return std::nullopt;
+            o.warmup = static_cast<std::uint32_t>(n);
+        } else if (a == L"--checkpoint-settle") {
+            if (!next_number(o.settle_s)) return std::nullopt;
+        } else if (a == L"--run-timeout") {
+            if (!next_number(o.run_timeout_s)) return std::nullopt;
+        } else if (a == L"--cooldown") {
+            if (!next_number(o.between_runs_s)) return std::nullopt;
+        } else if (compare_mode && !a.starts_with(L"--")) {
+            o.compare.emplace_back(std::wstring{a});
+        } else {
+            std::wcerr << L"unknown argument: " << a << L"\n";
+            return std::nullopt;
+        }
+    }
+    if (compare_mode) {
+        return o.compare.empty() ? std::nullopt : std::optional{o};
+    }
+    return o.targets.empty() ? std::nullopt : std::optional{o};
+}
+
+void write_text_atomically(const fs::path& path, std::string_view text) {
+    fs::path tmp = path;
+    tmp += L".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    }
+    ::MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+}
+
+/// @brief One launch of a --bench app: startup stamps, memory checkpoints, the window-lag probe, result.json.
+class ScenarioRun {
+public:
+    ScenarioRun(const ScenarioOptions& options, const ScenarioTarget& target, std::uint32_t index)
+        : m_options(options), m_target(target) {
+        m_result.run = index;
+        m_dir = fs::temp_directory_path() / ("boson_bench_scn_" + std::to_string(::GetCurrentProcessId()) + "_" + target.name + "_" + std::to_string(index));
+    }
+
+    scn::ScenarioRunResult execute() {
+        std::error_code ec;
+        fs::remove_all(m_dir, ec);
+        fs::create_directories(m_dir, ec);
+        std::vector<std::wstring> args = m_target.args;
+        args.emplace_back(L"--bench");
+        LaunchedTree tree = launch_tree(m_target.exe, args, m_dir);
+        if (!tree.error.empty()) {
+            m_result.error = std::move(tree.error);
+            return std::move(m_result);
+        }
+        m_job = std::move(tree.job);
+        m_process = std::move(tree.process);
+        m_root_pid = tree.root_pid;
+        m_t0 = tree.t0;
+        m_sampler.emplace(m_root_pid, m_job.get());
+        drive();
+        if (const auto text = read_file(m_dir / "result.json")) {
+            scn::AppResult app;
+            if (glz::read<glz::opts{.error_on_unknown_keys = false}>(app, *text)) {
+                m_result.error = m_result.error.empty() ? "result.json could not be parsed" : m_result.error;
+            } else {
+                m_result.app = std::move(app);
+            }
+        }
+        if (!m_result.error.empty()) {
+            if (const auto log_text = read_file(m_dir / "app.log"); log_text && !log_text->empty()) {
+                const std::size_t keep = std::min<std::size_t>(log_text->size(), 600);
+                m_result.error += " | app.log tail: " + log_text->substr(log_text->size() - keep);
+            }
+        }
+        const CloseOutcome outcome = close_tree(*m_sampler, m_root_pid, m_job.get(), m_t0, [](Sample) {});
+        m_result.shutdown_ms = outcome.shutdown_ms;
+        m_result.forced_kill = outcome.forced_kill;
+        fs::remove_all(m_dir, ec);
+        return std::move(m_result);
+    }
+
+private:
+    [[nodiscard]] double now_ms() const noexcept { return qpc_ms(m_t0, qpc_now()); }
+
+    void drive() {
+        std::uint64_t last_seq = 0;
+        std::string last_name = "startup";
+        double next_sample = 0.0;
+        const double deadline = m_options.run_timeout_s * 1000.0;
+        while (true) {
+            const double t = now_ms();
+            if (t >= next_sample) {
+                static_cast<void>(m_sampler->sample(t, "run"));
+                next_sample = t + (m_result.first_window_ms ? 500.0 : 20.0);
+                if (m_sampler->live_pids().empty()) {
+                    DWORD code = 0;
+                    ::GetExitCodeProcess(m_process.get(), &code);
+                    m_result.error = "target exited during '" + last_name + "' (exit code " + std::to_string(code) + ")";
+                    return;
+                }
+            }
+            if (!m_result.first_window_ms && !top_level_windows(m_sampler->live_pids(), true).empty()) {
+                m_result.first_window_ms = now_ms();
+            }
+            if (!m_result.shell_paint_ms) {
+                if (const auto stamp = read_stamp(m_dir, L"shell_paint")) m_result.shell_paint_ms = qpc_ms(m_t0, *stamp);
+            }
+            if (!m_result.first_nav_ms) {
+                if (const auto stamp = read_stamp(m_dir, L"first_nav")) m_result.first_nav_ms = qpc_ms(m_t0, *stamp);
+            }
+            if (const auto text = read_file(m_dir / "checkpoint")) {
+                if (const auto cp = scn::parse_checkpoint(*text); cp && cp->first > last_seq) {
+                    last_seq = cp->first;
+                    last_name = cp->second;
+                    std::cout << "[boson_bench]   checkpoint " << last_name << "\n" << std::flush;
+                    handle_checkpoint(last_name);
+                    write_text_atomically(m_dir / "ack", std::to_string(last_seq));
+                }
+            }
+            std::error_code ec;
+            if (fs::exists(m_dir / "done", ec)) {
+                m_result.scenario_ms = now_ms();
+                return;
+            }
+            if (t >= deadline) {
+                m_result.error = "timed out after checkpoint '" + last_name + "'";
+                return;
+            }
+            ::Sleep(2);
+        }
+    }
+
+    void handle_checkpoint(const std::string& name) {
+        if (name == "window") {
+            const auto text = read_file(m_dir / "hwnds");
+            const auto hwnds = text ? scn::parse_hwnds(*text) : std::nullopt;
+            if (!hwnds) {
+                m_result.lag = scn::LagResult{.error = "no usable hwnds file"};
+                return;
+            }
+            ::Sleep(500);
+            m_result.lag = scn::probe_window_lag(hwnds->first, hwnds->second);
+            return;
+        }
+        ::Sleep(static_cast<DWORD>(m_options.settle_s * 1000.0));
+        std::vector<scn::CheckpointMemory> samples;
+        for (int i = 0; i < 5; ++i) {
+            static_cast<void>(m_sampler->sample(now_ms(), name));
+            const std::vector<ProcessMetrics> processes = m_sampler->processes();
+            samples.push_back(scn::memory_of(name, processes, m_root_pid));
+            ::Sleep(250);
+        }
+        m_result.checkpoints.push_back(scn::median_memory(samples));
+    }
+
+    const ScenarioOptions& m_options;
+    const ScenarioTarget& m_target;
+    scn::ScenarioRunResult m_result;
+    fs::path m_dir;
+    UniqueHandle m_job;
+    UniqueHandle m_process;
+    DWORD m_root_pid = 0;
+    LONGLONG m_t0 = 0;
+    std::optional<ProcessTreeSampler> m_sampler;
+};
+
+int run_scenario(const ScenarioOptions& options) {
+    const MachineInfo machine = machine_info();
+    std::vector<scn::ScenarioReport> reports;
+    for (const ScenarioTarget& target : options.targets) {
+        scn::ScenarioReport report;
+        report.timestamp = iso_timestamp();
+        report.machine = machine;
+        report.name = target.name;
+        report.target = narrow(target.exe.wstring());
+        for (const auto& a : target.args) report.args.push_back(narrow(a));
+        std::error_code ec;
+        const std::uintmax_t bytes = fs::file_size(target.exe, ec);
+        report.exe_bytes = ec ? 0 : static_cast<std::uint64_t>(bytes);
+        report.checkpoint_settle_s = options.settle_s;
+        reports.push_back(std::move(report));
+    }
+    bool failed = false;
+    const std::uint32_t total = options.warmup + options.runs;
+    for (std::uint32_t i = 1; i <= total; ++i) {
+        for (std::size_t t = 0; t < options.targets.size(); ++t) { // interleaved, so slow drift hits every target alike
+            const ScenarioTarget& target = options.targets[t];
+            const bool warmup = i <= options.warmup;
+            std::cout << "[boson_bench] " << target.name << ": " << (warmup ? "warm-up " : "run ") << (warmup ? i : i - options.warmup) << "/"
+                      << (warmup ? options.warmup : options.runs) << "\n" << std::flush;
+            ScenarioRun run(options, target, i);
+            scn::ScenarioRunResult result = run.execute();
+            result.warmup = warmup;
+            if (!result.error.empty()) {
+                std::cerr << "[boson_bench] " << target.name << " run " << i << ": " << result.error << "\n";
+                failed = failed || !warmup;
+            }
+            reports[t].runs.push_back(std::move(result));
+            std::this_thread::sleep_for(std::chrono::duration<double>(options.between_runs_s));
+        }
+    }
+    std::error_code ec;
+    fs::create_directories(options.out_dir, ec);
+    for (const scn::ScenarioReport& report : reports) {
+        std::string json;
+        if (glz::write<glz::opts{.prettify = true}>(report, json)) {
+            std::cerr << "[boson_bench] failed to serialize " << report.name << "\n";
+            return 1;
+        }
+        std::ofstream(options.out_dir / (report.name + ".scenario.json"), std::ios::binary) << json;
+        const std::string md = scn::render_scenario_markdown(report);
+        std::ofstream(options.out_dir / (report.name + ".scenario.md"), std::ios::binary) << md;
+        std::cout << md << "\n";
+    }
+    if (reports.size() > 1) {
+        const std::string table = scn::render_scenario_comparison(reports);
+        std::ofstream(options.out_dir / "comparison.md", std::ios::binary) << table;
+        std::cout << table << "\n";
+    }
+    std::cout << "[boson_bench] wrote reports to " << narrow(fs::absolute(options.out_dir, ec).wstring()) << "\n";
+    return failed ? 1 : 0;
+}
+
+int compare_scenario(const ScenarioOptions& options) {
+    std::vector<scn::ScenarioReport> reports;
+    for (const auto& path : options.compare) {
+        const auto text = read_file(path);
+        scn::ScenarioReport report;
+        if (!text || glz::read<glz::opts{.error_on_unknown_keys = false}>(report, *text)) {
+            std::wcerr << L"cannot read report " << path.wstring() << L"\n";
+            return 2;
+        }
+        reports.push_back(std::move(report));
+    }
+    const std::string md = scn::render_scenario_comparison(reports);
+    std::cout << md;
+    if (options.compare_out) {
+        std::ofstream(*options.compare_out, std::ios::binary) << md;
+    }
+    return 0;
+}
+
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::wstring_view a{argv[i]};
+        if (a == L"--scenario" || a == L"--compare-scenario") {
+            const auto scenario = parse_scenario(argc, argv);
+            if (!scenario) {
+                std::wcerr << kUsage << kScenarioUsage;
+                return 2;
+            }
+            return scenario->compare.empty() ? run_scenario(*scenario) : compare_scenario(*scenario);
+        }
+    }
     const auto options = parse(argc, argv);
     if (!options) {
-        std::wcerr << kUsage;
+        std::wcerr << kUsage << kScenarioUsage;
         return 2;
     }
     if (!options->compare.empty()) {

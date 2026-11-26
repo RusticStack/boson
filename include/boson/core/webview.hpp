@@ -132,6 +132,8 @@ public:
     [[nodiscard]] const std::shared_ptr<Environment>& environment() const noexcept { return m_env; }
     [[nodiscard]] const WebViewConfig& config() const noexcept { return m_config; }
     [[nodiscard]] HWND parent_hwnd() const noexcept { return m_parent; }
+    /// @brief The Boson container child window that hosts the controller (windowed hosting), else null.
+    [[nodiscard]] HWND container_hwnd() const noexcept { return m_container; }
     [[nodiscard]] HostingMode hosting() const noexcept { return m_config.hosting; }
     [[nodiscard]] WebViewEventHandlers& events() noexcept { return m_events; }
 

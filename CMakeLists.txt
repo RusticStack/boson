@@ -7,6 +7,16 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# MSVC's default Release flags carry /Ob2 and boson_core asks for /Ob3; both on one command line is warning D9025.
+string(REPLACE "/Ob2" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+
+# Static CRT (/MT): executables no longer need the Visual C++ Redistributable (VCRUNTIME140.dll, MSVCP140.dll),
+# at the cost of a larger .exe. See docs/BENCHMARKS.md for both sizes.
+option(BOSON_STATIC_CRT "Link the MSVC runtime statically (/MT, /MTd)" OFF)
+if(BOSON_STATIC_CRT)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 include(CheckIPOSupported)
 check_ipo_supported(RESULT BOSON_IPO_SUPPORTED OUTPUT BOSON_IPO_ERROR)
 if(BOSON_IPO_SUPPORTED)
@@ -166,6 +176,14 @@ add_executable(boson_demo WIN32
     examples/demo/main.cpp
 )
 target_link_libraries(boson_demo PRIVATE boson_core)
+
+# Benchmark assets shared verbatim with bench/wails_browser (boson_browser --bench).
+set(BOSON_BENCH_SHARED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bench/shared")
+file(READ "${BOSON_BENCH_SHARED_DIR}/bench_shell.js" BOSON_BENCH_SHELL_JS)
+file(READ "${BOSON_BENCH_SHARED_DIR}/bench_tab.html" BOSON_BENCH_TAB_HTML)
+configure_file(examples/browser/bench_assets.hpp.in "${CMAKE_BINARY_DIR}/generated/browser_bench_assets.hpp" @ONLY)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${BOSON_BENCH_SHARED_DIR}/bench_shell.js" "${BOSON_BENCH_SHARED_DIR}/bench_tab.html")
 
 add_executable(boson_browser WIN32
     examples/browser/main.cpp

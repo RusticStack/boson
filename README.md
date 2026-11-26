@@ -2,7 +2,7 @@
 
 **A zero-overhead C++26 WebView2 desktop framework for Windows 10/11.**
 
-Boson pairs bare-metal Win32/COM (`ICoreWebView2`) with compile-time IPC reflection, NVIDIA `stdexec` (P2300 Senders/Receivers) background execution, Windows Fluent Design backdrops, in-memory custom protocol asset serving (`boson://app/*`), and automated TypeScript binding generation—shipping a self-contained **~455 KB** LTO-stripped `.exe` with zero external `WebView2Loader.dll` dependency.
+Boson pairs bare-metal Win32/COM (`ICoreWebView2`) with compile-time IPC reflection, NVIDIA `stdexec` (P2300 Senders/Receivers) background execution, Windows Fluent Design backdrops, in-memory custom protocol asset serving (`boson://app/*`), and automated TypeScript binding generation—shipping a single LTO-stripped `.exe` (**~1.15 MB** for `boson_demo.exe` with its frontend embedded, ~455 KB zipped) with zero external `WebView2Loader.dll` dependency. The default build links the MSVC runtime dynamically (it needs the VC++ 2015-2026 redistributable); `-DBOSON_STATIC_CRT=ON` makes it fully standalone at ~1.39 MB. Measured sizes and a Boson vs Wails v3 multi-tab benchmark are in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 ---
 
@@ -79,7 +79,7 @@ cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Buil
 ### 3. Run the Demo & Tests
 
 ```powershell
-# Run the self-contained Release executable (~455 KB, headless Mica by default)
+# Run the Release executable (~1.15 MB with the frontend embedded, headless Mica by default)
 .\build\release\boson_demo.exe
 
 # Optional flags:
