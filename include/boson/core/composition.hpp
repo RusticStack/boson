@@ -47,6 +47,10 @@ public:
     bool commit() const noexcept;
 
     [[nodiscard]] HWND hwnd() const noexcept { return m_hwnd; }
+    [[nodiscard]] IDCompositionDesktopDevice* device() const noexcept { return m_device.Get(); }
+    /// @brief Container visuals kept below / above every WebView visual (native GPU surfaces, gpu::SurfaceHost).
+    [[nodiscard]] IDCompositionVisual2* underlay() const noexcept { return m_underlay.Get(); }
+    [[nodiscard]] IDCompositionVisual2* overlay() const noexcept { return m_overlay.Get(); }
 
     /// @brief Calls fn(WebView*) from the top-most visual down; stops when fn returns true.
     template <typename Fn>
@@ -72,6 +76,8 @@ private:
     Microsoft::WRL::ComPtr<IDCompositionDesktopDevice> m_device;
     Microsoft::WRL::ComPtr<IDCompositionTarget> m_target;
     Microsoft::WRL::ComPtr<IDCompositionVisual2> m_root;
+    Microsoft::WRL::ComPtr<IDCompositionVisual2> m_underlay;
+    Microsoft::WRL::ComPtr<IDCompositionVisual2> m_overlay;
     std::vector<Entry> m_entries; // bottom -> top
 };
 

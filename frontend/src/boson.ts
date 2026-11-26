@@ -31,6 +31,10 @@ export class BosonIpcError extends Error {
 
 interface WebView2Host {
   postMessage(message: unknown): void;
+  /** Sends DOM objects (File, FileSystemHandle) along with the message (WebView2 1.0.1370+). */
+  postMessageWithAdditionalObjects?(message: unknown, additionalObjects: ArrayLike<unknown>): void;
+  /** Host objects added with AddHostObjectToScript; `sync` holds the synchronous proxies. */
+  hostObjects?: { sync?: Record<string, unknown> } & Record<string, unknown>;
   addEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void;
   removeEventListener(type: 'message', listener: (event: MessageEvent<unknown>) => void): void;
 }
@@ -48,6 +52,14 @@ interface PendingCall {
   reject: (reason: unknown) => void;
 }
 
+/** The SyncBridge host object (C++ boson::ipc::SyncBridge, name "boson"). */
+interface SyncHostObject {
+  invoke(method: string, params?: string): string;
+}
+
+/** Global defined by C++ boson::ipc::BootValues before any page script runs (deep-frozen). */
+export const BOOT_GLOBAL = '__BOSON_BOOT__';
+
 type EventName = keyof BosonEvents & string;
 type Listener = (data: unknown) => void;
 export type Unsubscribe = () => void;
@@ -57,6 +69,7 @@ class BosonClient {
   private pending = new Map<number, PendingCall>();
   private listeners = new Map<string, Set<Listener>>();
   private initialized = false;
+  private syncHost: SyncHostObject | null = null;
 
   private ensureListener(): WebView2Host {
     const webview = window.chrome?.webview;
@@ -122,6 +135,62 @@ class BosonClient {
 
   public isAvailable(): boolean {
     return Boolean(window.chrome?.webview);
+  }
+
+  private syncHostObject(): SyncHostObject {
+    if (this.syncHost) {
+      return this.syncHost;
+    }
+    const host = window.chrome?.webview?.hostObjects?.sync?.boson as SyncHostObject | undefined;
+    if (!host) {
+      throw new BosonIpcError(
+        'Synchronous IPC is unavailable: attach a boson::ipc::SyncBridge to this WebView (host object "boson").',
+        -32001
+      );
+    }
+    this.syncHost = host;
+    return host;
+  }
+
+  /** true when a SyncBridge host object is attached to this WebView. */
+  public isSyncAvailable(): boolean {
+    try {
+      this.syncHostObject();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Synchronous call through the SyncBridge host object (Electron's sendSync). Blocks this page's JS thread
+   * until the C++ handler returns; the handler runs on the native UI thread, so only methods enabled for sync
+   * (SyncController::boson_sync_methods / SyncBridge sync_methods) are reachable. Throws BosonIpcError.
+   * Prefer boson.boot() for values known at startup and boson.call() for everything else.
+   */
+  public invokeSync<TResult = unknown, TParams = Record<string, never>>(method: string, params?: TParams): TResult {
+    const raw = this.syncHostObject().invoke(method, params === undefined ? '{}' : JSON.stringify(params));
+    let response: RpcResponse<TResult>;
+    try {
+      response = JSON.parse(raw) as RpcResponse<TResult>;
+    } catch {
+      throw new BosonIpcError('Invalid synchronous IPC response', -32603);
+    }
+    if (response.status === 'success') {
+      return response.data as TResult;
+    }
+    throw new BosonIpcError(response.error?.message ?? 'Unknown C++ IPC error', response.error?.code ?? -32000);
+  }
+
+  /** The frozen boot-values object injected by C++ BootValues, or undefined when none was installed. */
+  public bootValues(): Readonly<Record<string, unknown>> | undefined {
+    return (window as unknown as Record<string, Readonly<Record<string, unknown>> | undefined>)[BOOT_GLOBAL];
+  }
+
+  /** One boot value (no IPC: a property read). undefined when absent. */
+  public boot<T = unknown>(key: string): T | undefined {
+    const values = this.bootValues();
+    return values && Object.prototype.hasOwnProperty.call(values, key) ? (values[key] as T) : undefined;
   }
 
   public call<TResult = unknown, TParams = Record<string, never>>(

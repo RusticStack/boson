@@ -48,6 +48,72 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(stdexec)
 
+# ---- Native app services: inflate (archive::ZipReader) and SQLite (db::Database) -------------------------
+# miniz: one C file (MIT), inflate/deflate + CRC-32 only (archive / stdio / time APIs compiled out).
+# SQLite: the public-domain amalgamation, multi-thread mode (each connection is guarded by db::Database).
+# Both are plain C sources without a CMake project of their own: FetchContent only downloads them.
+enable_language(C)
+FetchContent_Declare(
+    boson_miniz
+    URL https://github.com/richgel999/miniz/releases/download/3.1.2/miniz-3.1.2.zip
+    URL_HASH SHA256=f0446d863f9c19926ad9483c523fdc42e42b8d4a6a431d27e09d49c79a140d9a
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+# Database backends of boson::db (same typed API, chosen per Database::open). An app only links what is ON.
+option(BOSON_DB_SQLITE "Build the SQLite backend of boson::db" ON)
+option(BOSON_DB_ZEPHYR "Build the ZephyrDB backend of boson::db" ON)
+FetchContent_Declare(
+    boson_sqlite3
+    URL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+    URL_HASH SHA256=0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(boson_miniz)
+
+add_library(boson_miniz STATIC "${boson_miniz_SOURCE_DIR}/miniz.c")
+target_include_directories(boson_miniz SYSTEM PUBLIC "${boson_miniz_SOURCE_DIR}")
+target_compile_definitions(boson_miniz PUBLIC
+    MINIZ_NO_ZLIB_COMPATIBLE_NAMES MINIZ_NO_ARCHIVE_APIS MINIZ_NO_STDIO MINIZ_NO_TIME)
+target_compile_options(boson_miniz PRIVATE $<$<C_COMPILER_ID:MSVC>:/W0>)
+
+if(BOSON_DB_SQLITE)
+FetchContent_MakeAvailable(boson_sqlite3)
+add_library(boson_sqlite3 STATIC "${boson_sqlite3_SOURCE_DIR}/sqlite3.c")
+target_include_directories(boson_sqlite3 SYSTEM PUBLIC "${boson_sqlite3_SOURCE_DIR}")
+target_compile_definitions(boson_sqlite3 PRIVATE
+    SQLITE_THREADSAFE=2
+    SQLITE_DQS=0
+    SQLITE_DEFAULT_MEMSTATUS=0
+    SQLITE_DEFAULT_WAL_SYNCHRONOUS=1
+    SQLITE_LIKE_DOESNT_MATCH_BLOBS
+    SQLITE_MAX_EXPR_DEPTH=0
+    SQLITE_OMIT_DEPRECATED
+    SQLITE_OMIT_SHARED_CACHE
+    SQLITE_OMIT_LOAD_EXTENSION
+    SQLITE_USE_ALLOCA
+    SQLITE_WIN32_NO_ANSI)
+target_compile_options(boson_sqlite3 PRIVATE $<$<C_COMPILER_ID:MSVC>:/W0>)
+endif()
+
+# ZephyrDB (https://github.com/KelpHect/ZephyrDB), pinned. Linked statically through its C ABI
+# (zephyr/c_abi.h); its own warnings stay in its own target. EXCLUDE_FROM_ALL: only zephyrdb_core is built
+# (not its DLL / server / tests). Local clone: -DFETCHCONTENT_SOURCE_DIR_BOSON_ZEPHYRDB=D:/Projects/ZephyrDB
+set(BOSON_ZEPHYR_COMMIT c50eea79fee693df1931c471819016dacf43a09e)
+if(BOSON_DB_ZEPHYR)
+    set(ZEPHYR_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(ZEPHYR_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+    set(ZEPHYR_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        boson_zephyrdb
+        GIT_REPOSITORY https://github.com/KelpHect/ZephyrDB.git
+        GIT_TAG ${BOSON_ZEPHYR_COMMIT}
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(boson_zephyrdb)
+    # ZephyrDB's own /W4 build reports C4702 (unreachable code) in executor.cpp; keep its noise out of ours.
+    target_compile_options(zephyrdb_core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4702>)
+endif()
+
 add_library(boson_core STATIC
     src/core/window.cpp
     src/core/webview.cpp
@@ -59,9 +125,19 @@ add_library(boson_core STATIC
     src/core/protocol.cpp
     src/exec/task_runner.cpp
     src/ipc/bridge.cpp
+    src/ipc/sync_bridge.cpp
+    src/ipc/sync_boot.cpp
     src/app/lifecycle.cpp
+    src/core/window_manager.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
+    src/native/message_box.cpp
+    src/native/permissions.cpp
+    src/native/web_notifications.cpp
+    src/native/browser_args.cpp
+    src/native/metrics.cpp
+    src/native/system_info.cpp
+    src/native/session.cpp
     src/shell/app_id.cpp
     src/shell/icon.cpp
     src/shell/taskbar.cpp
@@ -79,6 +155,9 @@ add_library(boson_core STATIC
     src/webview/proxy.cpp
     src/webview/security_events.cpp
     src/webview/drm.cpp
+    src/webview/cdp.cpp
+    src/webview/cdp_server.cpp
+    src/webview/guest.cpp
     src/desktop/hidden_window.cpp
     src/desktop/clipboard.cpp
     src/desktop/shell.cpp
@@ -116,6 +195,27 @@ add_library(boson_core STATIC
     src/transfer/binary_transport.cpp
     src/transfer/file_drop.cpp
     src/transfer/stream_server.cpp
+    src/transfer/drag_out.cpp
+    src/process/command_line.cpp
+    src/process/detail.cpp
+    src/process/process.cpp
+    src/process/pipe_ipc.cpp
+    src/process/policy.cpp
+    src/process/sidecar.cpp
+    src/terminal/pty.cpp
+    src/terminal/output_channel.cpp
+    src/terminal/terminal_host.cpp
+    src/crypto/hash.cpp
+    src/archive/zip.cpp
+    src/fs/install_transaction.cpp
+    src/fs/known_folders.cpp
+    src/db/database.cpp
+    src/db/kv_store.cpp
+    $<$<BOOL:${BOSON_DB_SQLITE}>:src/db/sqlite_backend.cpp>
+    $<$<BOOL:${BOSON_DB_ZEPHYR}>:src/db/zephyr_backend.cpp>
+    src/net/http_client.cpp
+    src/net/http_cache.cpp
+    src/net/proxy.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -172,7 +272,71 @@ target_link_libraries(boson_core
         winhttp
         wintrust
         dbghelp
+        ws2_32
+    PRIVATE
+        boson_miniz
+        $<$<BOOL:${BOSON_DB_SQLITE}>:boson_sqlite3>
+        $<$<BOOL:${BOSON_DB_ZEPHYR}>:zephyrdb_core>
 )
+target_compile_definitions(boson_core
+    PUBLIC
+        BOSON_DB_HAS_SQLITE=$<BOOL:${BOSON_DB_SQLITE}>
+        BOSON_DB_HAS_ZEPHYR=$<BOOL:${BOSON_DB_ZEPHYR}>
+    PRIVATE
+        BOSON_ZEPHYR_COMMIT="${BOSON_ZEPHYR_COMMIT}"
+)
+
+# ---- boson_gpu: native GPU surfaces composited with WebView2 (docs/GPU.md) ----------------------------------
+# A separate library so apps that do not render natively never load d3d11 / d3d12 / dwrite.
+find_program(BOSON_FXC fxc
+    HINTS "$ENV{WindowsSdkVerBinPath}/x64" "$ENV{WindowsSdkBinPath}/x64"
+    PATHS "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" "C:/Program Files (x86)/Windows Kits/10/bin/x64"
+    REQUIRED)
+set(BOSON_GPU_SHADER_DIR "${CMAKE_BINARY_DIR}/generated/gpu")
+file(MAKE_DIRECTORY "${BOSON_GPU_SHADER_DIR}")
+set(BOSON_GPU_SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/gpu/shaders/batch2d.hlsl")
+add_custom_command(
+    OUTPUT "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h" "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h"
+    COMMAND "${BOSON_FXC}" /nologo /O3 /WX /T vs_4_0 /E vs_main /Vn g_batch2d_vs /Fh "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h" "${BOSON_GPU_SHADER_SRC}"
+    COMMAND "${BOSON_FXC}" /nologo /O3 /WX /T ps_4_0 /E ps_main /Vn g_batch2d_ps /Fh "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h" "${BOSON_GPU_SHADER_SRC}"
+    DEPENDS "${BOSON_GPU_SHADER_SRC}"
+    COMMENT "Compiling gpu::Renderer2D shaders (fxc)"
+    VERBATIM)
+
+# Vulkan headers only (vulkan-1.dll is loaded at runtime): the installed SDK when present, else Vulkan-Headers.
+file(GLOB _boson_vulkan_sdk_includes "C:/VulkanSDK/*/Include")
+find_path(BOSON_VULKAN_INCLUDE_DIR vulkan/vulkan.h HINTS "$ENV{VULKAN_SDK}/Include" PATHS ${_boson_vulkan_sdk_includes})
+if(NOT BOSON_VULKAN_INCLUDE_DIR)
+    FetchContent_Declare(
+        vulkan_headers
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG v1.4.309
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(vulkan_headers)
+    set(BOSON_VULKAN_INCLUDE_DIR "${vulkan_headers_SOURCE_DIR}/include")
+endif()
+message(STATUS "Boson GPU: Vulkan headers from ${BOSON_VULKAN_INCLUDE_DIR}")
+
+add_library(boson_gpu STATIC
+    src/gpu/device.cpp
+    src/gpu/render_loop.cpp
+    src/gpu/surface.cpp
+    src/gpu/renderer2d.cpp
+    src/gpu/vulkan_interop.cpp
+    "${BOSON_GPU_SHADER_DIR}/batch2d_vs.h"
+    "${BOSON_GPU_SHADER_DIR}/batch2d_ps.h"
+)
+target_include_directories(boson_gpu
+    PUBLIC "${BOSON_VULKAN_INCLUDE_DIR}"
+    PRIVATE "${BOSON_GPU_SHADER_DIR}")
+target_link_libraries(boson_gpu PUBLIC boson_core d3d11 d3d12 dxgi dwrite dcomp)
+
+add_executable(boson_gpu_demo WIN32
+    examples/gpu_demo/main.cpp
+    examples/gpu_demo/demo_page.hpp
+)
+target_link_libraries(boson_gpu_demo PRIVATE boson_gpu)
 
 add_executable(boson_demo WIN32
     examples/demo/main.cpp
@@ -192,6 +356,31 @@ add_executable(boson_browser WIN32
 )
 target_link_libraries(boson_browser PRIVATE boson_core)
 
+# Multi-window demo (app::WindowManager): pop-out dashboard, modal settings, emit by label. --smoke runs it unattended.
+add_executable(boson_windows_demo WIN32
+    examples/windows/main.cpp
+)
+target_link_libraries(boson_windows_demo PRIVATE boson_core)
+
+# Native platform pieces end to end: dialogs, permissions + JS prompt hook, web notifications -> toasts, zoom,
+# metrics, locale / preferences, shutdown blocking, close-to-tray (docs/NATIVE.md).
+add_executable(boson_native_example WIN32
+    examples/native/main.cpp
+)
+target_link_libraries(boson_native_example PRIVATE boson_core)
+
+# boson::process from C++: exec, streaming, a supervised Node sidecar (console).
+add_executable(boson_process_example
+    examples/process/main.cpp
+)
+target_link_libraries(boson_process_example PRIVATE boson_core)
+
+add_executable(boson_addon_manager_mini
+    examples/addon_manager_mini/main.cpp
+)
+target_link_libraries(boson_addon_manager_mini PRIVATE boson_core ws2_32)
+add_test(NAME boson_addon_manager_mini_selftest COMMAND boson_addon_manager_mini --selftest)
+
 add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
 )
@@ -206,7 +395,7 @@ target_link_libraries(boson_bench PRIVATE boson_core)
 add_executable(boson_tsgen
     tools/tsgen/main.cpp
 )
-target_link_libraries(boson_tsgen PRIVATE boson_core)
+target_link_libraries(boson_tsgen PRIVATE boson_core boson_gpu)
 
 # Hardware-DRM verification spike (issue #15): plays public PlayReady test streams in windowed and composition
 # hosting and records playback / capture evidence. Manual tool: needs network, a GPU and a real display.
@@ -289,6 +478,8 @@ if(BOSON_BUN_EXECUTABLE)
             frontend/src/boson.ts
             frontend/src/generated/boson-method-params.ts
             frontend/src/compat/electron.ts
+            frontend/src/dragout.ts
+            frontend/src/native.ts
             frontend/src/compat/tauri.ts
             frontend/src/compat/wails.ts
         COMMENT "Bundling the compat shim self-test"
@@ -313,6 +504,45 @@ add_executable(boson_webview_features_tests
 target_link_libraries(boson_webview_features_tests PRIVATE boson_core ws2_32)
 add_test(NAME boson_webview_features_tests COMMAND boson_webview_features_tests)
 set_tests_properties(boson_webview_features_tests PROPERTIES LABELS integration TIMEOUT 240)
+# <boson-webview> element, guests (partitions, preload, popups, downloads, IPC) and the CDP endpoint. The element
+# part needs the bundled frontend/src/webview_element.ts (bun); BOSON_PLAYWRIGHT_DIR enables the Playwright check.
+add_executable(boson_webview_element_tests
+    tests/test_webview_element.cpp
+)
+target_link_libraries(boson_webview_element_tests PRIVATE boson_core ws2_32)
+target_compile_definitions(boson_webview_element_tests PRIVATE BOSON_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+if(BOSON_BUN_EXECUTABLE)
+    # frontend/src/webview_element.ts as one IIFE script (registers <boson-webview>), for the test and the example.
+    set(BOSON_ELEMENT_JS "${CMAKE_BINARY_DIR}/generated/webview_element.js")
+    add_custom_command(
+        OUTPUT "${BOSON_ELEMENT_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/frontend/src/webview_element.ts"
+                --format=iife --minify "--outfile=${BOSON_ELEMENT_JS}"
+        DEPENDS frontend/src/webview_element.ts frontend/src/boson.ts frontend/src/generated/boson-bindings.d.ts
+        COMMENT "Bundling <boson-webview>"
+        VERBATIM)
+    # Same bytes as a header for compilers without #embed (examples/webview_element/main.cpp picks one).
+    set(BOSON_ELEMENT_JS_HEADER "${CMAKE_BINARY_DIR}/generated/webview_element_js.hpp")
+    add_custom_command(
+        OUTPUT "${BOSON_ELEMENT_JS_HEADER}"
+        COMMAND "${CMAKE_COMMAND}" "-DIN=${BOSON_ELEMENT_JS}" "-DOUT=${BOSON_ELEMENT_JS_HEADER}" -DNAME=kElementJs
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/EmbedFile.cmake"
+        DEPENDS "${BOSON_ELEMENT_JS}" cmake/EmbedFile.cmake
+        VERBATIM)
+    add_custom_target(boson_webview_element_js DEPENDS "${BOSON_ELEMENT_JS}" "${BOSON_ELEMENT_JS_HEADER}")
+    add_dependencies(boson_webview_element_tests boson_webview_element_js)
+    target_compile_definitions(boson_webview_element_tests PRIVATE BOSON_ELEMENT_JS="${BOSON_ELEMENT_JS}")
+    # Example: split view of two <boson-webview> panes, popups, --cdp endpoint. The bundle is #embed-ded.
+    add_executable(boson_webview_element WIN32
+        examples/webview_element/main.cpp
+    )
+    target_link_libraries(boson_webview_element PRIVATE boson_core)
+    target_include_directories(boson_webview_element PRIVATE "${CMAKE_BINARY_DIR}/generated")
+    add_dependencies(boson_webview_element boson_webview_element_js)
+    set_source_files_properties(examples/webview_element/main.cpp PROPERTIES OBJECT_DEPENDS "${BOSON_ELEMENT_JS_HEADER}")
+endif()
+add_test(NAME boson_webview_element_tests COMMAND boson_webview_element_tests)
+set_tests_properties(boson_webview_element_tests PROPERTIES LABELS integration TIMEOUT 400)
 # Desktop basics: clipboard, shell, global shortcuts, deep links, screen, window state.
 add_executable(boson_desktop_tests
     tests/test_desktop.cpp
@@ -342,6 +572,46 @@ add_executable(boson_menu_tests
 target_link_libraries(boson_menu_tests PRIVATE boson_core)
 add_test(NAME boson_menu_tests COMMAND boson_menu_tests)
 set_tests_properties(boson_menu_tests PROPERTIES TIMEOUT 180)
+# Window manager: windows by label, owned/modal windows, close veto, state per label, Window controller and
+# emit_to(label). Opens small SW_SHOWNOACTIVATE windows; the WebView2 part skips without a runtime.
+add_executable(boson_window_tests
+    tests/test_windows.cpp
+)
+target_link_libraries(boson_window_tests PRIVATE boson_core)
+add_test(NAME boson_window_tests COMMAND boson_window_tests)
+set_tests_properties(boson_window_tests PROPERTIES LABELS integration TIMEOUT 240)
+if(BOSON_BUN_EXECUTABLE)
+    # windows.ts + the Tauri / Electron / Wails window shims, run in a real window against the Window controller.
+    set(BOSON_WINDOWS_SELFTEST_JS "${CMAKE_BINARY_DIR}/windows_selftest.js")
+    add_custom_command(
+        OUTPUT "${BOSON_WINDOWS_SELFTEST_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/windows_selftest.ts"
+                --format=iife "--outfile=${BOSON_WINDOWS_SELFTEST_JS}"
+        DEPENDS
+            tests/js/windows_selftest.ts
+            frontend/src/boson.ts
+            frontend/src/windows.ts
+            frontend/src/generated/boson-method-params.ts
+            frontend/src/compat/electron.ts
+            frontend/src/compat/tauri.ts
+            frontend/src/compat/wails.ts
+        COMMENT "Bundling the window-manager shim self-test"
+        VERBATIM)
+    add_custom_target(boson_windows_selftest_js DEPENDS "${BOSON_WINDOWS_SELFTEST_JS}")
+    add_dependencies(boson_window_tests boson_windows_selftest_js)
+    target_compile_definitions(boson_window_tests PRIVATE BOSON_WINDOWS_SELFTEST_JS="${BOSON_WINDOWS_SELFTEST_JS}")
+endif()
+
+# boson::db backend benchmark (not a test; run a Release build by hand).
+add_executable(boson_db_bench tests/bench_db.cpp)
+target_link_libraries(boson_db_bench PRIVATE boson_core)
+# Native app services: hashing, ZIP, staged installs, HTTP client (loopback server), boson::db backends.
+add_executable(boson_native_services_tests
+    tests/test_native_services.cpp
+)
+target_link_libraries(boson_native_services_tests PRIVATE boson_core ws2_32)
+add_test(NAME boson_native_services_tests COMMAND boson_native_services_tests)
+set_tests_properties(boson_native_services_tests PROPERTIES TIMEOUT 300)
 # Shipping: versions, crypto, manifests, logger, loopback downloads, update helper, crash dumps.
 add_executable(boson_shipping_tests
     tests/test_shipping.cpp
@@ -364,6 +634,15 @@ if(BOSON_SIGNTOOL AND BOSON_PACKAGE_DEMO)
             -AssetScript "${CMAKE_CURRENT_SOURCE_DIR}/cmake/msix/generate_assets.ps1")
     set_tests_properties(boson_signing_test PROPERTIES TIMEOUT 120 LABELS signing)
 endif()
+# Child processes: argv quoting (incl. cmd.exe), pipes, extra handles, jobs (kill tree / kill-on-close), exec,
+# sidecars, named pipes, Node IPC (when node.exe is on PATH) and the Process controller through WebView2 (skips
+# without a runtime). The test executable is also every child process (--child modes).
+add_executable(boson_process_tests
+    tests/test_process.cpp
+)
+target_link_libraries(boson_process_tests PRIVATE boson_core)
+add_test(NAME boson_process_tests COMMAND boson_process_tests)
+set_tests_properties(boson_process_tests PROPERTIES TIMEOUT 300)
 # Persistent settings store: missing / corrupt files, concurrent updates, a crash during save (child
 # process), the Store IPC controller and "store:changed" events. Headless; everything lives in a temp folder.
 add_executable(boson_store_tests
@@ -372,6 +651,25 @@ add_executable(boson_store_tests
 target_link_libraries(boson_store_tests PRIVATE boson_core)
 add_test(NAME boson_store_tests COMMAND boson_store_tests)
 set_tests_properties(boson_store_tests PROPERTIES TIMEOUT 120)
+# Synchronous IPC (SyncBridge host object, BootValues, ElectronIpc.sendSync) and native drag-out data objects.
+# Headless checks always run; the WebView2 part (latency numbers) skips without a runtime. Opens one small
+# non-activated window; never performs a real mouse drag.
+add_executable(boson_sync_tests
+    tests/test_sync.cpp
+)
+target_link_libraries(boson_sync_tests PRIVATE boson_core)
+add_test(NAME boson_sync_tests COMMAND boson_sync_tests)
+set_tests_properties(boson_sync_tests PROPERTIES TIMEOUT 240)
+
+# Native platform pieces: dialogs (auto-driven, never left open), message boxes, permissions, web notifications,
+# zoom, browser arguments, metrics, locale / preferences, session end, close-to-tray. Opens one small
+# non-activated window; the WebView2 part skips when no runtime is installed.
+add_executable(boson_native_tests
+    tests/test_native.cpp
+)
+target_link_libraries(boson_native_tests PRIVATE boson_core)
+add_test(NAME boson_native_tests COMMAND boson_native_tests)
+set_tests_properties(boson_native_tests PROPERTIES LABELS integration TIMEOUT 240)
 # File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
 # the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
 add_executable(boson_transfer_tests
@@ -380,3 +678,77 @@ add_executable(boson_transfer_tests
 target_link_libraries(boson_transfer_tests PRIVATE boson_core)
 add_test(NAME boson_transfer_tests COMMAND boson_transfer_tests)
 set_tests_properties(boson_transfer_tests PROPERTIES TIMEOUT 300)
+# Native GPU surfaces: D3D11 / D3D12 devices, offscreen readback of the 2D batch renderer and DirectWrite text,
+# composition swap chains (create / resize / present, idle = no presents), device-lost recovery and Vulkan
+# interop readback (skips without vulkan-1.dll). Opens one small SW_SHOWNOACTIVATE window.
+add_executable(boson_gpu_tests
+    tests/test_gpu.cpp
+)
+target_link_libraries(boson_gpu_tests PRIVATE boson_gpu)
+add_test(NAME boson_gpu_tests COMMAND boson_gpu_tests)
+set_tests_properties(boson_gpu_tests PROPERTIES TIMEOUT 180)
+
+# Terminals: ConPTY spawn / echo / resize / kill + job cleanup / exit codes / UTF-8, OutputChannel flow control,
+# then TerminalHost + TerminalController in a real WebView2 (hidden-pane replay, 128 MiB throughput benchmark,
+# memory bound) and the terminal.ts / compat/node_pty.ts self-test when bun is available. The executable is
+# also its own child process (--spew, --size, ...). Opens one small non-activated window.
+add_executable(boson_terminal_tests
+    tests/test_terminal.cpp
+)
+target_link_libraries(boson_terminal_tests PRIVATE boson_core psapi)
+if(BOSON_BUN_EXECUTABLE)
+    set(BOSON_TERMINAL_SELFTEST_JS "${CMAKE_BINARY_DIR}/terminal_selftest.js")
+    add_custom_command(
+        OUTPUT "${BOSON_TERMINAL_SELFTEST_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/terminal_selftest.ts"
+                --format=iife "--outfile=${BOSON_TERMINAL_SELFTEST_JS}"
+        DEPENDS
+            tests/js/terminal_selftest.ts
+            frontend/src/boson.ts
+            frontend/src/transfer.ts
+            frontend/src/terminal.ts
+            frontend/src/compat/node_pty.ts
+        COMMENT "Bundling the terminal.ts self-test"
+        VERBATIM)
+    add_custom_target(boson_terminal_selftest_js DEPENDS "${BOSON_TERMINAL_SELFTEST_JS}")
+    add_dependencies(boson_terminal_tests boson_terminal_selftest_js)
+    target_compile_definitions(boson_terminal_tests PRIVATE BOSON_TERMINAL_SELFTEST_JS="${BOSON_TERMINAL_SELFTEST_JS}")
+endif()
+add_test(NAME boson_terminal_tests COMMAND boson_terminal_tests)
+set_tests_properties(boson_terminal_tests PROPERTIES LABELS integration TIMEOUT 600)
+# Terminal demo (examples/terminal_demo): split panes of ConPTY terminals rendered by xterm.js + WebGL. Needs bun
+# and frontend/node_modules (cd frontend && bun install: @xterm/* are devDependencies); skipped otherwise.
+set(BOSON_TERMINAL_DEMO_WEB "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/web")
+set(BOSON_XTERM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/frontend/node_modules/@xterm")
+if(BOSON_BUN_EXECUTABLE AND EXISTS "${BOSON_XTERM_DIR}/xterm/css/xterm.css" AND EXISTS "${BOSON_XTERM_DIR}/addon-webgl")
+    set(_demo_gen "${CMAKE_BINARY_DIR}/generated/terminal_demo")
+    set(_demo_js "${_demo_gen}/app.js")
+    set(_demo_header "${_demo_gen}/terminal_demo_assets.hpp")
+    add_custom_command(
+        OUTPUT "${_demo_header}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${BOSON_TERMINAL_DEMO_WEB}/demo.ts" --format=iife --minify
+                "--outfile=${_demo_js}"
+        COMMAND "${CMAKE_COMMAND}" "-DOUT=${_demo_header}"
+                "-DASSETS=/index.html=${BOSON_TERMINAL_DEMO_WEB}/index.html,/demo.css=${BOSON_TERMINAL_DEMO_WEB}/demo.css,/xterm.css=${BOSON_XTERM_DIR}/xterm/css/xterm.css,/app.js=${_demo_js}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/examples/terminal_demo/embed_assets.cmake"
+        DEPENDS
+            examples/terminal_demo/web/demo.ts
+            examples/terminal_demo/web/index.html
+            examples/terminal_demo/web/demo.css
+            examples/terminal_demo/web/tsconfig.json
+            examples/terminal_demo/embed_assets.cmake
+            frontend/src/boson.ts
+            frontend/src/transfer.ts
+            frontend/src/terminal.ts
+        COMMENT "Bundling the terminal demo (xterm.js + WebGL)"
+        VERBATIM)
+    add_custom_target(boson_terminal_demo_assets DEPENDS "${_demo_header}")
+    add_executable(boson_terminal_demo WIN32
+        examples/terminal_demo/main.cpp
+    )
+    add_dependencies(boson_terminal_demo boson_terminal_demo_assets)
+    target_include_directories(boson_terminal_demo PRIVATE "${_demo_gen}")
+    target_link_libraries(boson_terminal_demo PRIVATE boson_core)
+    add_test(NAME boson_terminal_demo_selftest COMMAND boson_terminal_demo --selftest)
+    set_tests_properties(boson_terminal_demo_selftest PROPERTIES LABELS integration TIMEOUT 120)
+endif()

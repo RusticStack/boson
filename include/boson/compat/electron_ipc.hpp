@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -107,6 +108,18 @@ public:
     bool remove_handler(std::string_view channel);
     [[nodiscard]] bool has_handler(std::string_view channel) const;
 
+    // ---- ipcMain.on + event.returnValue for ipcRenderer.sendSync ------------------------------------------
+    /// @brief Handler for ipcRenderer.sendSync(channel, ...args); its return value is the sendSync result.
+    /// Served by "ElectronIpc.sendSync" through ipc::SyncBridge, so it runs ON THE UI THREAD while the page's
+    /// JS thread waits: keep it to microseconds (precomputed values belong in ipc::BootValues instead).
+    bool handle_sync(std::string channel, Handler handler);
+    bool handle_sync_raw(std::string channel, RawHandler handler);
+    bool remove_sync_handler(std::string_view channel);
+    [[nodiscard]] bool has_sync_handler(std::string_view channel) const;
+
+    /// Methods ipc::SyncBridge may call synchronously (only sendSync).
+    static constexpr std::array<std::string_view, 1> boson_sync_methods() noexcept { return {"sendSync"}; }
+
     // ---- ipcMain.on / once / removeListener / removeAllListeners ------------------------------------------
     /// @brief Listener for ipcRenderer.send(channel, ...args).
     ListenerId on(std::string channel, Listener listener);
@@ -135,7 +148,8 @@ public:
 
     // ---- Router integration (DynamicController) --------------------------------------------------------
     /// @brief Serves "ElectronIpc.invoke" {channel,args}, "ElectronIpc.send" {channel,args} and
-    /// "ElectronIpc.emit" {event,payload,broadcast}. Returns false for any other method name.
+    /// "ElectronIpc.emit" {event,payload,broadcast} and "ElectronIpc.sendSync" {channel,args}. Returns false for
+    /// any other method name.
     bool boson_dispatch(
         std::string_view method,
         std::uint64_t request_id,
@@ -168,13 +182,18 @@ private:
 
     bool add_handler(std::string channel, std::shared_ptr<const HandlerEntry> entry);
     ListenerId add_listener(ListenerKind kind, std::string name, Listener listener, bool once);
+    using HandlerMap = std::unordered_map<std::string, std::shared_ptr<const HandlerEntry>, StringHash, std::equal_to<>>;
+
+    static bool add_to(HandlerMap& map, std::shared_mutex& mutex, std::string channel, std::shared_ptr<const HandlerEntry> entry);
     std::string invoke(std::uint64_t request_id, std::string_view params_json);
+    std::string invoke_in(HandlerMap& map, std::string_view what, std::uint64_t request_id, std::string_view params_json);
     std::string send_from_renderer(std::uint64_t request_id, std::string_view params_json);
     std::string emit_from_renderer(std::uint64_t request_id, std::string_view params_json);
     void notify_listeners(ListenerKind kind, std::string_view name, std::string_view args_json);
 
     mutable std::shared_mutex m_mutex;
-    std::unordered_map<std::string, std::shared_ptr<const HandlerEntry>, StringHash, std::equal_to<>> m_handlers;
+    HandlerMap m_handlers;
+    HandlerMap m_sync_handlers;
     std::vector<ListenerEntry> m_listeners;
     ListenerId m_next_listener_id = 1;
     std::atomic<ipc::Bridge*> m_bridge;

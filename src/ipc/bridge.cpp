@@ -84,6 +84,7 @@ void Bridge::attach(core::WebView& webview, BridgeAttachOptions options) {
         .id = webview.id(),
         .allowed_origins = std::move(options.allowed_origins),
         .capabilities = std::move(options.capabilities),
+        .window_label = std::move(options.window_label),
     };
     if (attachment.allowed_origins.empty()) {
         attachment.allowed_origins.emplace_back("boson://app");
@@ -122,6 +123,20 @@ bool Bridge::set_capabilities(std::uint64_t webview_id, std::shared_ptr<const se
     }
     it->capabilities = std::move(policy);
     return true;
+}
+
+bool Bridge::set_window_label(std::uint64_t webview_id, std::string window_label) {
+    const auto it = std::ranges::find(m_attachments, webview_id, &Attachment::id);
+    if (it == m_attachments.end()) {
+        return false;
+    }
+    it->window_label = std::move(window_label);
+    return true;
+}
+
+std::string_view Bridge::window_label_of(std::uint64_t webview_id) const noexcept {
+    const Attachment* attachment = find(webview_id);
+    return attachment == nullptr ? std::string_view{} : std::string_view{attachment->window_label};
 }
 
 const Bridge::Attachment* Bridge::find(std::uint64_t webview_id) const noexcept {
@@ -178,6 +193,28 @@ void Bridge::deliver(std::uint64_t webview_id, std::string_view json) const {
     }
     if (const Attachment* attachment = find(webview_id); attachment != nullptr) {
         attachment->webview->post_web_message_as_json(json);
+    }
+}
+
+void Bridge::deliver_to_window(std::string_view window_label, std::string_view json) const {
+    for (const auto& attachment : m_attachments) {
+        if (attachment.window_label == window_label) {
+            attachment.webview->post_web_message_as_json(json);
+        }
+    }
+}
+
+bool Bridge::emit_json_to_window(std::string_view window_label, std::string_view event, std::string_view data_json) {
+    try {
+        std::string envelope = make_event_envelope(event, data_json);
+        m_marshal.post_task([this, alive = m_alive, label = std::string(window_label), envelope = std::move(envelope)]() {
+            if (*alive) {
+                deliver_to_window(label, envelope);
+            }
+        });
+        return true;
+    } catch (...) {
+        return false;
     }
 }
 

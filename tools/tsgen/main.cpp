@@ -6,23 +6,34 @@
 #include <boson/ipc/controllers/auto_launch_controller.hpp>
 #include <boson/ipc/controllers/clipboard_controller.hpp>
 #include <boson/ipc/controllers/credential_controller.hpp>
-#include <boson/ipc/controllers/fs_controller.hpp>
+
 #include <boson/ipc/controllers/log_controller.hpp>
 #include <boson/ipc/controllers/menu_controller.hpp>
+#include <boson/ipc/controllers/native_controller.hpp>
 #include <boson/ipc/controllers/notification_controller.hpp>
 #include <boson/ipc/controllers/power_controller.hpp>
+#include <boson/ipc/controllers/process_controller.hpp>
 #include <boson/ipc/controllers/safe_storage_controller.hpp>
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
 #include <boson/ipc/controllers/shortcut_controller.hpp>
 #include <boson/ipc/controllers/store_controller.hpp>
 #include <boson/ipc/controllers/taskbar_controller.hpp>
+#include <boson/ipc/controllers/terminal_controller.hpp>
 #include <boson/ipc/controllers/titlebar_controller.hpp>
 #include <boson/ipc/controllers/transfer_controller.hpp>
 #include <boson/ipc/controllers/updater_controller.hpp>
 #include <boson/ipc/controllers/webview_controller.hpp>
+#include <boson/ipc/controllers/window_controller.hpp>
 #include <boson/ipc/controllers/platform_events.hpp>
+#include <boson/ipc/sync_bridge.hpp>
 #include <boson/ipc/system_controller.hpp>
+#include <boson/ipc/controllers/drag_controller.hpp>
+#include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/gpu_controller.hpp>
+#include <boson/ipc/controllers/db_controller.hpp>
+#include <boson/ipc/controllers/http_controller.hpp>
+#include <boson/ipc/controllers/guest_controller.hpp>
 #include <boson/ipc/ts_generator.hpp>
 
 #include "../../examples/demo/app_controller.hpp"
@@ -57,8 +68,17 @@ bool write_file(const std::filesystem::path& out_path, const std::string& conten
 } // namespace
 
 using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents, boson::ipc::DesktopEvents, boson::ipc::MenuEvents,
-                                                      boson::ipc::ShellIntegrationEvents, boson::ipc::PlatformEvents,
-                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>>;
+                                                      boson::ipc::ShellIntegrationEvents,
+                                                      boson::ipc::PlatformEvents,
+                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>,
+                                                      boson::ipc::DragEvents,
+                                                      boson::ipc::WindowManagerEvents,
+                                                      boson::ipc::NativeEvents,
+                                                      boson::ipc::GpuEvents,
+                                                      boson::ipc::ProcessEvents,
+                                                      boson::ipc::TerminalEvents,
+                                                      boson::ipc::HttpEvents,
+                                                      boson::ipc::GuestEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -73,21 +93,34 @@ using AllControllers = Outputs<
     boson::ipc::AutoLaunchController,
     boson::ipc::ClipboardController,
     boson::ipc::CredentialController,
+    boson::ipc::DragController,
+    boson::ipc::DialogController,
     boson::ipc::FsController,
+    boson::ipc::GpuController,
+    boson::ipc::DbController,
+    boson::ipc::HttpController,
+    boson::ipc::GuestController,
     boson::ipc::LogController,
     boson::ipc::MenuController,
+    boson::ipc::NativeController,
     boson::ipc::NotificationController,
+    boson::ipc::PermissionController,
     boson::ipc::PowerController,
+    boson::ipc::ProcessController,
     boson::ipc::SafeStorageController,
     boson::ipc::ScreenController,
     boson::ipc::ShellController,
     boson::ipc::ShortcutController,
     boson::ipc::StoreController<boson::demo::DemoSettings>,
+    boson::ipc::SyncHostController,
     boson::ipc::TaskbarController,
+    boson::ipc::TerminalController,
     boson::ipc::TitlebarController,
     boson::ipc::TransferController,
     boson::ipc::UpdaterController,
-    boson::ipc::WebViewController>;
+    boson::ipc::WebViewController,
+    boson::ipc::WindowController,
+    boson::ipc::ZoomController>;
 
 // Usage: boson_tsgen [bindings.d.ts [method-params.ts]]
 //   bindings.d.ts     BosonApi / BosonEvents declarations (stdout when omitted)

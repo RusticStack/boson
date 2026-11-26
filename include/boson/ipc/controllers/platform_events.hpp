@@ -2,6 +2,7 @@
 
 #include <boson/ipc/controllers/desktop_events.hpp>
 #include <boson/ipc/controllers/fs_controller.hpp>
+#include <boson/ipc/controllers/http_controller.hpp>
 #include <boson/ipc/controllers/menu_controller.hpp>
 #include <boson/ipc/controllers/shell_events.hpp>
 #include <boson/ipc/controllers/titlebar_controller.hpp>
@@ -27,7 +28,7 @@ struct PlatformEvents {
 
 /// @brief Every built-in Boson event, for TsGenerator::generate_with_events. Combine with app events via
 /// TsGenerator::EventMaps<AllBosonEvents..., MyEvents> or by listing the maps directly.
-using AllBosonEvents = TsGenerator::EventMaps<DesktopEvents, MenuEvents, ShellIntegrationEvents, PlatformEvents>;
+using AllBosonEvents = TsGenerator::EventMaps<DesktopEvents, MenuEvents, ShellIntegrationEvents, PlatformEvents, HttpEvents>;
 
 } // namespace boson::ipc
 

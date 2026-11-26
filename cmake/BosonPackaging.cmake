@@ -6,10 +6,13 @@
 #       NAME "My App" VERSION 1.2.3 VENDOR "Acme"
 #       [DESCRIPTION "..."] [APP_USER_MODEL_ID Acme.MyApp] [UPGRADE_GUID <guid>] [REGISTRY_KEY "Acme\\My App"]
 #       [PROTOCOLS myapp ...] [ICON app.ico] [LICENSE LICENSE.txt|license.rtf] [HOMEPAGE https://...]
-#       [EXTRA_FILES ...] [EXTRA_DIRECTORIES ...] [CLEAN_APPDATA_DIR "My App"]
+#       [EXTRA_FILES ...] [EXTRA_DIRECTORIES ...] [SIDECAR_DIRECTORIES ...] [CLEAN_APPDATA_DIR "My App"]
 #       [MSIX_IDENTITY Acme.MyApp] [MSIX_PUBLISHER "CN=Acme"] [MSIX_ASSETS dir] [MSIX_MIN_VERSION 10.0.17763.0]
 #       [WIX_VERSION 3|4] [NO_ZIP] [NO_MSI] [NO_MSIX] [NO_VC_RUNTIME])
 #   boson_sign_target(my_app)          # post-build signtool when BOSON_SIGN=ON
+#   boson_add_sidecar(my_app DIRECTORY third_party/node [NAME node])
+#                                      # post-build copy to <exe dir>/sidecars/<NAME>; boson_package installs
+#                                      # every registered sidecar (and SIDECAR_DIRECTORIES) to sidecars/<NAME>
 #
 # Packages:   cpack -G ZIP   |   cpack -G WIX   |   cmake --build <dir> --target my_app_msix
 include_guard(GLOBAL)
@@ -94,11 +97,32 @@ function(_boson_guid out_var seed name)
 endfunction()
 
 # ---- boson_package --------------------------------------------------------------------------------------
+# boson_add_sidecar(<target> DIRECTORY <dir> [NAME <name>]): ships <dir> (e.g. a node.exe + scripts bundle) as
+# sidecars/<name> next to the executable. Copied after every build so the build tree runs like the package, and
+# installed (ZIP / MSI / MSIX) by boson_package. At runtime: app::executable_directory() / "sidecars" / name.
+function(boson_add_sidecar target)
+    cmake_parse_arguments(PARSE_ARGV 1 BAS "" "DIRECTORY;NAME" "")
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "boson_add_sidecar: '${target}' is not a target")
+    endif()
+    if(NOT BAS_DIRECTORY)
+        message(FATAL_ERROR "boson_add_sidecar: DIRECTORY is required")
+    endif()
+    get_filename_component(_dir "${BAS_DIRECTORY}" ABSOLUTE)
+    if(NOT BAS_NAME)
+        get_filename_component(BAS_NAME "${_dir}" NAME)
+    endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_dir}" "$<TARGET_FILE_DIR:${target}>/sidecars/${BAS_NAME}"
+        COMMENT "Copying sidecar ${BAS_NAME}" VERBATIM)
+    set_property(TARGET ${target} APPEND PROPERTY BOSON_SIDECARS "${_dir}|${BAS_NAME}")
+endfunction()
+
 function(boson_package target)
     cmake_parse_arguments(PARSE_ARGV 1 BP
         "NO_ZIP;NO_MSI;NO_MSIX;NO_VC_RUNTIME"
         "NAME;VERSION;VENDOR;DESCRIPTION;APP_USER_MODEL_ID;REGISTRY_KEY;UPGRADE_GUID;ICON;LICENSE;HOMEPAGE;CLEAN_APPDATA_DIR;MSIX_IDENTITY;MSIX_PUBLISHER;MSIX_ASSETS;MSIX_MIN_VERSION;MSIX_MAX_VERSION_TESTED;MSIX_ARCH;MSIX_LANGUAGE;WIX_VERSION"
-        "PROTOCOLS;EXTRA_FILES;EXTRA_DIRECTORIES")
+        "PROTOCOLS;EXTRA_FILES;EXTRA_DIRECTORIES;SIDECAR_DIRECTORIES")
     if(NOT TARGET ${target})
         message(FATAL_ERROR "boson_package: '${target}' is not a target")
     endif()
@@ -163,6 +187,22 @@ function(boson_package target)
     endif()
     foreach(_dir IN LISTS BP_EXTRA_DIRECTORIES)
         install(DIRECTORY "${_dir}" DESTINATION . COMPONENT application)
+    endforeach()
+    # Sidecars (boson_add_sidecar + SIDECAR_DIRECTORIES): "<abs dir>|<name>" pairs, installed to sidecars/<name>.
+    get_target_property(_sidecars ${target} BOSON_SIDECARS)
+    if(NOT _sidecars)
+        set(_sidecars "")
+    endif()
+    foreach(_d IN LISTS BP_SIDECAR_DIRECTORIES)
+        get_filename_component(_abs "${_d}" ABSOLUTE)
+        get_filename_component(_dn "${_abs}" NAME)
+        list(APPEND _sidecars "${_abs}|${_dn}")
+    endforeach()
+    foreach(_entry IN LISTS _sidecars)
+        string(REPLACE "|" ";" _pair "${_entry}")
+        list(GET _pair 0 _sd)
+        list(GET _pair 1 _sn)
+        install(DIRECTORY "${_sd}/" DESTINATION "sidecars/${_sn}" COMPONENT application)
     endforeach()
     # App-local MSVC runtime (vcruntime140*.dll, msvcp140*.dll) so the package runs on machines without the
     # VC++ redistributable. The UCRT is part of Windows 10+.
@@ -361,6 +401,12 @@ function(boson_package target)
         foreach(_d IN LISTS BP_EXTRA_DIRECTORIES)
             get_filename_component(_dn "${_d}" NAME)
             list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_d}" "${_layout}/${_dn}")
+        endforeach()
+        foreach(_entry IN LISTS _sidecars)
+            string(REPLACE "|" ";" _pair "${_entry}")
+            list(GET _pair 0 _sd)
+            list(GET _pair 1 _sn)
+            list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${_sd}" "${_layout}/sidecars/${_sn}")
         endforeach()
         if(BP_MSIX_ASSETS)
             list(APPEND _cmds COMMAND "${CMAKE_COMMAND}" -E copy_directory "${BP_MSIX_ASSETS}" "${_layout}/Assets")

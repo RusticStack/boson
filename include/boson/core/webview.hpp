@@ -326,6 +326,8 @@ private:
         EventRegistrationToken basic_auth{};
         EventRegistrationToken client_certificate{};
         EventRegistrationToken server_certificate{};
+        EventRegistrationToken zoom{};
+        EventRegistrationToken notification{};
     } m_tokens;
 
     std::shared_ptr<std::atomic<bool>> m_alive;

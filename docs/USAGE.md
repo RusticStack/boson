@@ -435,15 +435,23 @@ Each module has its own guide with API, examples and an honest verification sect
 
 | Module | Guide | Controllers (JS name) | Events |
 |---|---|---|---|
+| Windows by label (multi-window, owned / modal, close veto, state per label) | [WINDOWS.md](WINDOWS.md) | `Window` | `window:created`, `window:closed`, `window:focus`, `window:blur`, `window:moved`, `window:resized`, `window:maximized`, `window:minimized`, `window:restored`, `window:shown`, `window:hidden`, `window:close-requested` |
 | Menus, tray, accelerators | [MENU.md](MENU.md) | `Menu` | `menu:click`, `tray:click` |
 | Clipboard, shell, shortcuts, deep links, screen, window state | [DESKTOP.md](DESKTOP.md) | `Clipboard`, `Shell`, `Screen`, `Shortcut` | `clipboard:changed`, `screen:changed`, `shortcut:triggered` |
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
+| Terminals (ConPTY, xterm.js, node-pty shim) | [TERMINAL.md](TERMINAL.md) | `Terminal` | `terminal:exit`, `terminal:title`, `terminal:cwd` |
 | Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
+| `<boson-webview>` element, guests, CDP / Playwright endpoint | [WEBVIEW_ELEMENT.md](WEBVIEW_ELEMENT.md) | `Guest` | `guest:*` |
 | Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
 | Persistent settings (`Store<T>`) | [STORE.md](STORE.md) | `Store` (name configurable) | `store:changed` |
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
+| Child processes, sidecars, named pipes, bundled Node | [PROCESS.md](PROCESS.md) | `Process` | `process:stdout`, `process:stderr`, `process:exit`, `process:exec`, `process:message` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
+| HTTP client, ZIP, hashing, staged installs, known folders, SQLite / ZephyrDB | [NATIVE_SERVICES.md](NATIVE_SERVICES.md) | `Http`, `Db` | `http:progress`, `http:done` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
+| Dialogs, message boxes, permissions, web notifications, zoom, browser args, metrics, locale / system preferences, session end, close-to-tray | [NATIVE.md](NATIVE.md) | `Dialog`, `Permissions`, `Zoom`, `Native` | `permission:*`, `zoom:changed`, `system:*`, `session:*`, `tray:window-hidden`, `web-notification:*` |
+| Native GPU surfaces (D3D11/D3D12, 2D renderer, Vulkan interop) | [GPU.md](GPU.md) | `Gpu` | `gpu:device_lost` |
 | Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
+| Sync IPC (host object), boot values, native drag-out | [SYNC_IPC.md](SYNC_IPC.md) | `SyncHost` (sync only), `Drag` | `drag:ended` |
 
-Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`, `boson_store_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.
+Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_webview_element_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests` (+ `boson_compat_typecheck`), `boson_store_tests`, `boson_window_tests`, `boson_native_tests`, `boson_native_services_tests`, `boson_sync_tests`, `boson_process_tests`, `boson_terminal_tests` (+ `boson_terminal_demo_selftest`), `boson_gpu_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.

@@ -102,8 +102,64 @@ template <typename T>
 template <typename T>
 struct StructRegistry {
     std::vector<std::string> emitted_names;
+    /// Full C++ type name -> TypeScript name. Two distinct C++ types with the same unqualified name (e.g.
+    /// net::HttpResponse and shipping::HttpResponse) get distinct, namespace-qualified TS names instead of one
+    /// silently shadowing the other.
+    std::vector<std::pair<std::string, std::string>> type_names;
     std::string interfaces_out;
 };
+
+/// @brief The TypeScript name for T: unqualified when unique, namespace-qualified (boson:: stripped) on collision.
+template <typename T>
+[[nodiscard]] std::string resolve_ts_name(StructRegistry<void>& registry) {
+    using CleanT = std::remove_cvref_t<T>;
+    const std::string full{glz::name_v<CleanT>};
+    for (const auto& [type, name] : registry.type_names) {
+        if (type == full) {
+            return name;
+        }
+    }
+    std::string name = unqualified_ts_name<CleanT>();
+    const auto taken = [&](const std::string& candidate) {
+        for (const auto& entry : registry.type_names) {
+            if (entry.second == candidate) {
+                return true;
+            }
+        }
+        return false;
+    };
+    if (taken(name)) {
+        std::string_view raw = full;
+        for (const std::string_view prefix : {std::string_view{"struct "}, std::string_view{"class "}}) {
+            if (raw.starts_with(prefix)) {
+                raw.remove_prefix(prefix.size());
+            }
+        }
+        if (raw.starts_with("boson::")) {
+            raw.remove_prefix(7);
+        }
+        std::string qualified;
+        qualified.reserve(raw.size());
+        for (std::size_t i = 0; i < raw.size(); ++i) {
+            const char ch = raw[i];
+            if (ch == ':' && i + 1 < raw.size() && raw[i + 1] == ':') {
+                ++i;
+                // capitalize the next segment: net::HttpResponse -> Net_HttpResponse style stays readable
+                qualified.push_back('_');
+            } else if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_') {
+                qualified.push_back(ch);
+            } else {
+                qualified.push_back('_');
+            }
+        }
+        name = std::move(qualified);
+        for (int suffix = 2; taken(name); ++suffix) {
+            name = std::move(name) + std::to_string(suffix);
+        }
+    }
+    registry.type_names.emplace_back(full, name);
+    return name;
+}
 
 template <typename T>
 [[nodiscard]] std::string to_ts_type(StructRegistry<void>& registry);
@@ -111,7 +167,7 @@ template <typename T>
 template <typename Struct>
 void emit_ts_interface(StructRegistry<void>& registry) {
     using CleanT = std::remove_cvref_t<Struct>;
-    const std::string name = unqualified_ts_name<CleanT>();
+    const std::string name = resolve_ts_name<CleanT>(registry);
     for (const auto& existing : registry.emitted_names) {
         if (existing == name) {
             return;
@@ -182,7 +238,7 @@ template <typename T>
         return "Record<string, " + to_ts_type<typename CleanT::mapped_type>(registry) + ">";
     } else if constexpr (glz::reflectable<CleanT>) {
         emit_ts_interface<CleanT>(registry);
-        return unqualified_ts_name<CleanT>();
+        return resolve_ts_name<CleanT>(registry);
     } else {
         return "unknown";
     }

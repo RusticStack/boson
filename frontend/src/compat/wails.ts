@@ -506,6 +506,8 @@ function done(): void {}
 /** The Wails Window methods Boson provides (the rest have no SystemController counterpart). */
 export interface WailsWindow {
   Get(name: string): WailsWindow;
+  /** Label of the window (Wails: its name). */
+  Name(): CancellablePromise<string>;
   Minimise(): CancellablePromise<void>;
   UnMinimise(): CancellablePromise<void>;
   Maximise(): CancellablePromise<void>;
@@ -530,14 +532,68 @@ export interface WailsWindow {
   OpenDevTools(): CancellablePromise<void>;
 }
 
+declare global {
+  interface Window {
+    __BOSON_WINDOW__?: { label: string };
+  }
+}
+
+function windowCall<T = void>(method: string, params: Record<string, unknown>): CancellablePromise<T> {
+  return cancellable(boson.call<T, Record<string, unknown>>(`Window.${method}`, params));
+}
+
+interface WindowInfoFlags {
+  label: string;
+  maximized: boolean;
+  minimized: boolean;
+  fullscreen: boolean;
+}
+
+/** A window by label (Window.Get(name) for another window), on the Window controller (app::WindowManager). */
+function labelledWindow(label: string): WailsWindow {
+  const flags = (): CancellablePromise<WindowInfoFlags> => windowCall<WindowInfoFlags>('get', { label });
+  const w: WailsWindow = {
+    Get: (name: string): WailsWindow => Window.Get(name),
+    Name: (): CancellablePromise<string> => cancellable(Promise.resolve(label)),
+    Minimise: () => windowCall('minimize', { label }),
+    UnMinimise: () => windowCall('restore', { label }),
+    Maximise: () => windowCall('maximize', { label }),
+    UnMaximise: () => windowCall('unmaximize', { label }),
+    ToggleMaximise: () => flags().then((f) => (f.maximized ? windowCall('unmaximize', { label }) : windowCall('maximize', { label }))),
+    Restore: () =>
+      flags().then((f) => (f.fullscreen ? windowCall('set_fullscreen', { label, enabled: false }) : windowCall('restore', { label }))),
+    IsMaximised: () => flags().then((f) => f.maximized),
+    IsMinimised: () => flags().then((f) => f.minimized),
+    IsFullscreen: () => flags().then((f) => f.fullscreen),
+    Fullscreen: () => windowCall('set_fullscreen', { label, enabled: true }),
+    UnFullscreen: () => windowCall('set_fullscreen', { label, enabled: false }),
+    ToggleFullscreen: () => flags().then((f) => windowCall('set_fullscreen', { label, enabled: !f.fullscreen })),
+    Close: () => windowCall('close', { label }),
+    SetTitle: (title: string) => windowCall('set_title', { label, title }),
+    Center: () => windowCall('center', { label }),
+    SetAlwaysOnTop: (alwaysOnTop: boolean) => windowCall('set_always_on_top', { label, enabled: alwaysOnTop }),
+    SetMinSize: (width: number, height: number) => windowCall('set_min_size', { label, width, height }),
+    // Page-level calls have no by-label form: they reject instead of acting on the wrong window.
+    SetZoom: () => cancellable(Promise.reject(new BosonIpcError('SetZoom works on the current window only', -32601))),
+    ZoomReset: () => cancellable(Promise.reject(new BosonIpcError('ZoomReset works on the current window only', -32601))),
+    Reload: () => cancellable(Promise.reject(new BosonIpcError('Reload works on the current window only', -32601))),
+    ForceReload: () => cancellable(Promise.reject(new BosonIpcError('ForceReload works on the current window only', -32601))),
+    OpenDevTools: () => cancellable(Promise.reject(new BosonIpcError('OpenDevTools works on the current window only', -32601))),
+  };
+  return w;
+}
+
 /**
- * The current window, mapped onto SystemController. Boson has one SystemController per WebView, so Get()
- * returns this same object; methods without a SystemController counterpart are not provided.
+ * The current window, mapped onto SystemController (which a multi-window app routes to the calling window with
+ * ipc::sender_resolver). Get(name) returns this object for the current window's name (or when the page is not in
+ * a WindowManager window) and a by-label proxy on the Window controller for any other name.
  */
 export const Window: WailsWindow = {
-  Get(_name: string): WailsWindow {
-    return Window;
+  Get(name: string): WailsWindow {
+    const current = window.__BOSON_WINDOW__?.label;
+    return current === undefined || name === '' || name === current ? Window : labelledWindow(name);
   },
+  Name: (): CancellablePromise<string> => cancellable(Promise.resolve(window.__BOSON_WINDOW__?.label ?? '')),
   Minimise: (): CancellablePromise<void> => system('minimize'),
   UnMinimise: (): CancellablePromise<void> => system('restore'),
   Maximise: (): CancellablePromise<void> =>
