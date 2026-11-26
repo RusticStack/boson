@@ -50,6 +50,17 @@
 #include <boson/shell/taskbar.hpp>
 #include <boson/shell/toast.hpp>
 #include <boson/shell/toast_activation.hpp>
+#include <boson/desktop/clipboard.hpp>
+#include <boson/desktop/deep_link.hpp>
+#include <boson/desktop/screen.hpp>
+#include <boson/desktop/shell.hpp>
+#include <boson/desktop/shortcuts.hpp>
+#include <boson/desktop/window_state.hpp>
+#include <boson/ipc/controllers/clipboard_controller.hpp>
+#include <boson/ipc/controllers/desktop_events.hpp>
+#include <boson/ipc/controllers/screen_controller.hpp>
+#include <boson/ipc/controllers/shell_controller.hpp>
+#include <boson/ipc/controllers/shortcut_controller.hpp>
 
 #include <boson/app/lifecycle.hpp>
 
