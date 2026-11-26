@@ -69,6 +69,8 @@ struct WebViewConfig {
     bool transparent_background = false;
     /// Serve boson://app/* from the AssetLookupFn. Off for third-party content WebViews.
     bool serve_boson_assets = true;
+    /// Extra "Name: value" header lines (CRLF-separated) on every boson://app response, e.g. a CSP.
+    std::string asset_response_headers;
     bool start_visible = true;
     HostingMode hosting = HostingMode::Windowed;
     /// Required for HostingMode::Composition (WebViewHost supplies it).

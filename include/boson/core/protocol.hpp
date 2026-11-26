@@ -8,6 +8,7 @@
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 
 namespace boson::core {
@@ -20,6 +21,9 @@ public:
     explicit ProtocolHandler(AssetLookupFn lookup);
 
     void set_lookup(AssetLookupFn lookup);
+    /// @brief Extra response headers ("Name: value" lines separated by CRLF) added to every boson://app
+    /// response, e.g. Content-Security-Policy (see boson::security::apply_security_headers).
+    void set_extra_headers(std::string_view headers);
 
     [[nodiscard]] static std::string_view mime_type_for(std::string_view path) noexcept;
 
@@ -29,6 +33,7 @@ public:
 
 private:
     AssetLookupFn m_lookup;
+    std::string m_extra_headers; ///< "\r\nName: value..." ready to append
 };
 
 } // namespace boson::core

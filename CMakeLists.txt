@@ -75,6 +75,14 @@ add_library(boson_core STATIC
     src/desktop/deep_link.cpp
     src/desktop/screen.cpp
     src/desktop/window_state.cpp
+    src/security/common.cpp
+    src/security/origin.cpp
+    src/security/capabilities.cpp
+    src/security/web_security.cpp
+    src/security/safe_storage.cpp
+    src/security/credential_store.cpp
+    src/security/fs_scope.cpp
+    src/security/scoped_fs.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -125,6 +133,7 @@ target_link_libraries(boson_core
         wtsapi32
         shcore
         windowscodecs
+        crypt32
 )
 
 add_executable(boson_demo WIN32
@@ -218,3 +227,11 @@ add_executable(boson_desktop_tests
 target_link_libraries(boson_desktop_tests PRIVATE boson_core)
 add_test(NAME boson_desktop_tests COMMAND boson_desktop_tests)
 set_tests_properties(boson_desktop_tests PROPERTIES TIMEOUT 180)
+# Security & storage: capability policy, CSP headers (real WebView, skips without runtime), DPAPI,
+# Credential Manager (unique test targets, removed at the end) and the scoped file system.
+add_executable(boson_security_tests
+    tests/test_security.cpp
+)
+target_link_libraries(boson_security_tests PRIVATE boson_core)
+add_test(NAME boson_security_tests COMMAND boson_security_tests)
+set_tests_properties(boson_security_tests PROPERTIES TIMEOUT 180)
