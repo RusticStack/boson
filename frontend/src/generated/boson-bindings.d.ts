@@ -1039,6 +1039,10 @@ export interface BosonApi {
     "Boson.maximize_or_restore": () => Promise<BoolResponse>;
     "Boson.close": () => Promise<void>;
     "Boson.is_maximized": () => Promise<BoolResponse>;
+    "Boson.is_minimized": () => Promise<BoolResponse>;
+    "Boson.is_fullscreen": () => Promise<BoolResponse>;
+    "Boson.restore": () => Promise<void>;
+    "Boson.quit": () => Promise<void>;
     "Boson.set_title": (params: TitleRequest) => Promise<void>;
     "Boson.set_always_on_top": (params: ToggleRequest) => Promise<void>;
     "Boson.set_fullscreen": (params: ToggleRequest) => Promise<void>;

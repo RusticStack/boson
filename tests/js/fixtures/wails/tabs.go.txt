@@ -1,0 +1,50 @@
+// Go source the fixture under bindings/ was generated from (kept as .txt so no Go tooling picks it up).
+// Throwaway project outside the repo: module "wailsfixture", package main, main.go registering
+// application.NewService(&TabService{}), wails v3.1.0. Generated with:
+//   wails3 generate bindings -ts
+// (bindings/ is that output, unchanged). The C++ twin is pt::TabService in tests/test_porting.cpp.
+
+package main
+
+import "errors"
+
+// Tab is one browser tab.
+type Tab struct {
+	ID     int               `json:"id"`
+	URL    string            `json:"url"`
+	Title  string            `json:"title"`
+	Muted  bool              `json:"muted"`
+	Tags   []string          `json:"tags"`
+	Meta   map[string]string `json:"meta"`
+	Opener *Tab              `json:"opener"`
+}
+
+// TabService manages tabs.
+type TabService struct {
+	tabs []Tab
+}
+
+// CreateTab opens a new tab.
+func (s *TabService) CreateTab(rawURL string, title string) (*Tab, error) {
+	if rawURL == "" {
+		return nil, errors.New("empty url")
+	}
+	t := Tab{ID: len(s.tabs) + 1, URL: rawURL, Title: title}
+	s.tabs = append(s.tabs, t)
+	return &t, nil
+}
+
+// ListTabs returns every tab.
+func (s *TabService) ListTabs() []Tab { return s.tabs }
+
+// SetMuted mutes or unmutes a tab.
+func (s *TabService) SetMuted(id int, muted bool) error { return nil }
+
+// Resize sets a tab's viewport size.
+func (s *TabService) Resize(id int, width int, height int) bool { return true }
+
+// Rename changes the title of a tab.
+func (s *TabService) Rename(tab Tab, title string) Tab { tab.Title = title; return tab }
+
+// Version returns the backend version.
+func (s *TabService) Version() string { return "1.0" }

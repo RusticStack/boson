@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <optional>
 #include <cctype>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -151,6 +152,43 @@ public:
         return m_marshal.invoke_sync([this]() {
             return BoolResponse{.value = m_window.is_maximized()};
         });
+    }
+
+    [[nodiscard]] BoolResponse is_minimized() const {
+        return m_marshal.invoke_sync([this]() {
+            return BoolResponse{.value = m_window.is_minimized()};
+        });
+    }
+
+    [[nodiscard]] BoolResponse is_fullscreen() const {
+        return m_marshal.invoke_sync([this]() {
+            return BoolResponse{.value = m_window.is_fullscreen()};
+        });
+    }
+
+    /// @brief Restores a minimized or maximized window to its normal size and position (SW_RESTORE).
+    void restore() const {
+        m_marshal.post_task([this]() {
+            m_window.show(SW_RESTORE);
+        });
+    }
+
+    /// @brief Application quit request from the frontend (Wails Application.Quit, a Quit menu item...).
+    /// Runs the handler from set_quit_handler() on the UI thread, e.g. one that calls boson::app::quit(envs);
+    /// without one it closes this window (which posts WM_QUIT when WindowConfig::quit_on_destroy is set).
+    void quit() const {
+        m_marshal.post_task([this]() {
+            if (m_on_quit) {
+                m_on_quit();
+            } else {
+                m_window.close();
+            }
+        });
+    }
+
+    /// @brief Overrides what quit() does. Set it before the Router starts dispatching.
+    void set_quit_handler(std::function<void()> fn) {
+        m_on_quit = std::move(fn);
     }
 
     void set_title(TitleRequest req) const {
@@ -300,6 +338,7 @@ private:
     core::WebView& m_webview;
     exec::UiMarshal& m_marshal;
     native::Notifier m_notifier;
+    std::function<void()> m_on_quit;
 };
 
 } // namespace boson::ipc
@@ -313,6 +352,10 @@ struct glz::meta<boson::ipc::SystemController> {
         "maximize_or_restore", &T::maximize_or_restore,
         "close", &T::close,
         "is_maximized", &T::is_maximized,
+        "is_minimized", &T::is_minimized,
+        "is_fullscreen", &T::is_fullscreen,
+        "restore", &T::restore,
+        "quit", &T::quit,
         "set_title", &T::set_title,
         "set_always_on_top", &T::set_always_on_top,
         "set_fullscreen", &T::set_fullscreen,
