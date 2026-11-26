@@ -430,9 +430,10 @@ Each module has its own guide with API, examples and an honest verification sect
 | File drop, binary IPC, streaming | [TRANSFER.md](TRANSFER.md) | `Transfer` | — |
 | Print, PDF, capture, find, cookies, profiles | [WEBVIEW_FEATURES.md](WEBVIEW_FEATURES.md) | `WebView` | `webview:find` |
 | Capabilities, CSP, safe storage, credentials, scoped FS | [SECURITY.md](SECURITY.md) | `Fs`, `SafeStorage`, `Credential` | `fs:changed` |
+| Persistent settings (`Store<T>`) | [STORE.md](STORE.md) | `Store` (name configurable) | `store:changed` |
 | Taskbar, jump lists, toasts, power, auto-launch | [SHELL_INTEGRATION.md](SHELL_INTEGRATION.md) | `Taskbar`, `Notification`, `Power`, `AutoLaunch` | `taskbar:*`, `notification:*`, `power:*` |
 | Packaging, signing, updater, crash reporting, logging | [SHIPPING.md](SHIPPING.md) | `Updater`, `Log` | `updater:*` |
 | Titlebar overlay, accessibility, theme | [TITLEBAR.md](TITLEBAR.md) | `Titlebar` | `titlebar:overlay`, `theme:changed` |
 | Electron / Tauri / Wails shims | [PORTING.md](PORTING.md), [MIGRATION.md](MIGRATION.md) | `ElectronIpc` (dynamic) | `ipc:<channel>` |
 
-Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.
+Test executables: `boson_menu_tests`, `boson_desktop_tests`, `boson_transfer_tests`, `boson_webview_features_tests`, `boson_security_tests`, `boson_shell_integration_tests`, `boson_shipping_tests` (+ `boson_signing_test`), `boson_titlebar_tests`, `boson_porting_tests`, `boson_store_tests`. Most open small windows and drive the real WebView2 runtime; run them with `ctest`.

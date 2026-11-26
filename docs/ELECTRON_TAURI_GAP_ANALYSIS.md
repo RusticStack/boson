@@ -34,6 +34,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 | **Notifications** | Native Notifications | WinRT Toast (`toastXml`) + balloon | `tauri-plugin-notification` (WinRT Toast) | WinRT toasts without the Windows App SDK (buttons, inline reply, progress, COM activation) + `Shell_NotifyIconW` fallback |
 | **Storage & Security** | Scoped Filesystem API | Node `fs` (unscoped) | `tauri-plugin-fs` (capability-scoped) | `security::ScopedFs` + `Fs.*` (traversal, junction, UNC/device-path protection; watch) |
 | | Secure Credential Store | `safeStorage` (Win32 DPAPI) | `stronghold` / `keyring` | `SafeStorage` (DPAPI) + `CredentialStore` (Windows Credential Manager) |
+| | Settings Store | `electron-store` | `tauri-plugin-store` | `store::Store<T>` (typed, defaults, corrupt-file recovery, atomic saves) + `Store` controller and `store:changed` ([STORE.md](STORE.md)) |
 | | Per-Window Capabilities / CSP | `contextIsolation` + `sandbox` + CSP | `capabilities/*.json` + `security.csp` | `CapabilityPolicy` per WebView/origin (checked before dispatch) + strict default CSP + navigation/new-window policies |
 | **Distribution** | Code Signing | Authenticode (`signtool`) | `signtool.exe` integration | `boson_sign_target` (thumbprint, PFX, Azure Trusted Signing parameters) |
 | | Installers (NSIS / MSI / MSIX) | Forge / `electron-builder` | Built-in `tauri bundler` | `boson_package`: ZIP and MSIX built and tested; MSI (CPack WiX) templates untested (WiX not installed) |

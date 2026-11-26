@@ -15,6 +15,7 @@
 #include <boson/ipc/controllers/screen_controller.hpp>
 #include <boson/ipc/controllers/shell_controller.hpp>
 #include <boson/ipc/controllers/shortcut_controller.hpp>
+#include <boson/ipc/controllers/store_controller.hpp>
 #include <boson/ipc/controllers/taskbar_controller.hpp>
 #include <boson/ipc/controllers/titlebar_controller.hpp>
 #include <boson/ipc/controllers/transfer_controller.hpp>
@@ -26,11 +27,13 @@
 
 #include "../../examples/demo/app_controller.hpp"
 #include "../../examples/demo/demo_events.hpp"
+#include "../../examples/demo/demo_settings.hpp"
 
 int main(int argc, char** argv) {
     using namespace boson::ipc;
     const std::string dts = TsGenerator::generate_with_events<
-        TsGenerator::EventMaps<boson::demo::DemoEvents, DesktopEvents, MenuEvents, ShellIntegrationEvents, PlatformEvents>,
+        TsGenerator::EventMaps<boson::demo::DemoEvents, DesktopEvents, MenuEvents, ShellIntegrationEvents, PlatformEvents,
+            StoreEvents<boson::demo::DemoSettings>>,
         SystemController,
         boson::demo::AppController,
         AutoLaunchController,
@@ -45,6 +48,7 @@ int main(int argc, char** argv) {
         ScreenController,
         ShellController,
         ShortcutController,
+        StoreController<boson::demo::DemoSettings>,
         TaskbarController,
         TitlebarController,
         TransferController,

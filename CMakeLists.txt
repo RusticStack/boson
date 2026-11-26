@@ -83,6 +83,7 @@ add_library(boson_core STATIC
     src/security/credential_store.cpp
     src/security/fs_scope.cpp
     src/security/scoped_fs.cpp
+    src/store/store.cpp
     src/titlebar/theme.cpp
     src/titlebar/window_chrome.cpp
     src/titlebar/caption_accessibility.cpp
@@ -322,6 +323,14 @@ if(BOSON_SIGNTOOL AND BOSON_PACKAGE_DEMO)
             -AssetScript "${CMAKE_CURRENT_SOURCE_DIR}/cmake/msix/generate_assets.ps1")
     set_tests_properties(boson_signing_test PROPERTIES TIMEOUT 120 LABELS signing)
 endif()
+# Persistent settings store: missing / corrupt files, concurrent updates, a crash during save (child
+# process), the Store IPC controller and "store:changed" events. Headless; everything lives in a temp folder.
+add_executable(boson_store_tests
+    tests/test_store.cpp
+)
+target_link_libraries(boson_store_tests PRIVATE boson_core)
+add_test(NAME boson_store_tests COMMAND boson_store_tests)
+set_tests_properties(boson_store_tests PROPERTIES TIMEOUT 120)
 # File drop, binary IPC (shared buffers / base64) and streaming boson://media. Headless unit tests always run;
 # the WebView2 part (including the throughput benchmark) skips when no runtime is installed.
 add_executable(boson_transfer_tests

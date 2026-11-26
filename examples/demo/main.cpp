@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -14,6 +15,10 @@
 
 #include "app_controller.hpp"
 #include "demo_events.hpp"
+#include "demo_settings.hpp"
+
+#include <boson/ipc/controllers/store_controller.hpp>
+#include <boson/store/store.hpp>
 
 namespace {
 
@@ -146,6 +151,11 @@ int WINAPI wWinMain(
     boson::desktop::WindowStateKeeper window_state(window, {.app_name = L"Boson.Demo"});
     window_state.restore(show_cmd);
 
+    // Settings: defaults from DemoSettings{}, tolerant load (a corrupt file is backed up), atomic saves.
+    auto settings = std::make_shared<boson::store::Store<boson::demo::DemoSettings>>(boson::store::StoreOptions{
+        .path = boson::store::default_store_path(L"Boson Demo").value_or(std::filesystem::path{}),
+    });
+
     boson::exec::Scheduler scheduler;
     boson::exec::UiMarshal marshal([&window]() {
         window.post_invoke();
@@ -158,6 +168,9 @@ int WINAPI wWinMain(
 
     boson::core::EnvironmentConfig env_cfg;
     env_cfg.enable_draggable_regions = true; // CSS app-region on runtimes without ICoreWebView2Settings9
+    if (!settings->get().hardware_acceleration) {
+        env_cfg.additional_browser_arguments.emplace_back(L"--disable-gpu");
+    }
     const std::shared_ptr<boson::core::Environment> environment = boson::core::Environment::create(env_cfg);
 
     boson::core::WebViewHost host(window, environment);
@@ -189,14 +202,19 @@ int WINAPI wWinMain(
     boson::ipc::SystemController system_controller(window, webview, marshal);
     boson::demo::AppController app_controller;
     boson::ipc::TitlebarController titlebar_controller(window, webview, marshal, titlebar);
-    boson::ipc::Router<boson::ipc::SystemController, boson::demo::AppController, boson::ipc::TitlebarController> router(
-        system_controller,
-        app_controller,
-        titlebar_controller);
+    boson::ipc::StoreController<boson::demo::DemoSettings> store_controller(settings);
+    boson::ipc::Router<
+        boson::ipc::SystemController,
+        boson::demo::AppController,
+        boson::ipc::TitlebarController,
+        boson::ipc::StoreController<boson::demo::DemoSettings>>
+        router(system_controller, app_controller, titlebar_controller, store_controller);
 
     boson::ipc::Bridge bridge(runner, marshal, router);
     bridge.attach(webview);
     boson::ipc::connect_titlebar_events(titlebar, bridge);
+    // "store:changed" for C++- and page-made changes; destroyed before the bridge.
+    const auto settings_events = connect_store_events(store_controller, bridge);
 
     // ---- Backend -> frontend events ---------------------------------------------------------------------
     const auto emit_window_state = [&window, &bridge](bool focused) {
