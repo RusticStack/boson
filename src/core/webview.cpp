@@ -2,6 +2,7 @@
 
 #include <boson/core/composition.hpp>
 #include <boson/core/result.hpp>
+#include <boson/webview/profile.hpp>
 
 #include <algorithm>
 
@@ -242,14 +243,22 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
     const std::shared_ptr<std::atomic<bool>> alive = m_alive;
     const std::uint64_t generation = m_env->generation();
 
+    // Named profile / InPrivate / script locale go through ICoreWebView2Environment10.
+    ComPtr<ICoreWebView2Environment10> env10;
+    const ComPtr<ICoreWebView2ControllerOptions> options = webview::create_controller_options(env, m_config);
+    if (webview::wants_controller_options(m_config) &&
+        (!options || !BOSON_HR_CHECK(env->QueryInterface(IID_PPV_ARGS(&env10))))) {
+        m_creating = false;
+        return;
+    }
+
     if (m_config.hosting == HostingMode::Composition) {
         ComPtr<ICoreWebView2Environment3> env3;
         if (!BOSON_HR_CHECK(env->QueryInterface(IID_PPV_ARGS(&env3))) || !env3) {
             m_creating = false;
             return;
         }
-        const HRESULT hr = env3->CreateCoreWebView2CompositionController(
-            m_parent,
+        const auto handler =
             Callback<ICoreWebView2CreateCoreWebView2CompositionControllerCompletedHandler>(
                 [this, alive, generation](HRESULT result, ICoreWebView2CompositionController* composition) -> HRESULT {
                     if (!alive->load(std::memory_order_acquire)) {
@@ -273,16 +282,16 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                     }
                     on_controller_created(result, controller.Get());
                     return S_OK;
-                })
-                .Get());
+                });
+        const HRESULT hr = env10 ? env10->CreateCoreWebView2CompositionControllerWithOptions(m_parent, options.Get(), handler.Get())
+                                 : env3->CreateCoreWebView2CompositionController(m_parent, handler.Get());
         if (!BOSON_HR_CHECK(hr)) {
             m_creating = false;
         }
         return;
     }
 
-    const HRESULT hr = env->CreateCoreWebView2Controller(
-        m_container,
+    const auto handler =
         Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
             [this, alive, generation](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
                 if (!alive->load(std::memory_order_acquire)) {
@@ -298,8 +307,9 @@ void WebView::create_controller(ICoreWebView2Environment* env) {
                 }
                 on_controller_created(result, controller);
                 return S_OK;
-            })
-            .Get());
+            });
+    const HRESULT hr = env10 ? env10->CreateCoreWebView2ControllerWithOptions(m_container, options.Get(), handler.Get())
+                             : env->CreateCoreWebView2Controller(m_container, handler.Get());
     if (!BOSON_HR_CHECK(hr)) {
         m_creating = false;
     }

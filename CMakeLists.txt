@@ -61,6 +61,13 @@ add_library(boson_core STATIC
     src/shell/power.cpp
     src/shell/auto_launch.cpp
     src/compat/electron_ipc.cpp
+    src/webview/print.cpp
+    src/webview/capture.cpp
+    src/webview/find.cpp
+    src/webview/cookies.cpp
+    src/webview/profile.cpp
+    src/webview/proxy.cpp
+    src/webview/security_events.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -187,3 +194,11 @@ if(BOSON_BUN_EXECUTABLE)
     add_dependencies(boson_porting_tests boson_porting_shim_js)
     target_compile_definitions(boson_porting_tests PRIVATE BOSON_PORTING_SHIM_JS="${BOSON_PORTING_SHIM_JS}")
 endif()
+# WebView features (print/PDF, capture, find, cookies, profiles, proxy, auth events). Unit checks always run;
+# the runtime part skips when no WebView2 runtime is installed. Opens one small non-activated window.
+add_executable(boson_webview_features_tests
+    tests/test_webview_features.cpp
+)
+target_link_libraries(boson_webview_features_tests PRIVATE boson_core ws2_32)
+add_test(NAME boson_webview_features_tests COMMAND boson_webview_features_tests)
+set_tests_properties(boson_webview_features_tests PROPERTIES LABELS integration TIMEOUT 240)

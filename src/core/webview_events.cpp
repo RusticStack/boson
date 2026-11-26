@@ -1,6 +1,7 @@
 #include <boson/core/webview.hpp>
 
 #include <boson/core/result.hpp>
+#include <boson/webview/security_events.hpp>
 
 namespace boson::core {
 
@@ -510,6 +511,9 @@ void WebView::register_event_handlers() {
             &m_tokens.favicon));
     }
 
+    webview::detail::register_security_event_handlers(
+        *this, live, m_tokens.basic_auth, m_tokens.client_certificate, m_tokens.server_certificate);
+
     if (m_composition_controller) {
         BOSON_HR_CHECK(m_composition_controller->add_CursorChanged(
             Callback<ICoreWebView2CursorChangedEventHandler>(
@@ -574,6 +578,8 @@ void WebView::unregister_event_handlers() noexcept {
             remove(m_tokens.favicon, [&webview15](EventRegistrationToken t) { webview15->remove_FaviconChanged(t); });
         }
     }
+    webview::detail::unregister_security_event_handlers(
+        m_webview.Get(), m_tokens.basic_auth, m_tokens.client_certificate, m_tokens.server_certificate);
     if (m_composition_controller != nullptr) {
         if (m_tokens.cursor.value != 0) {
             m_composition_controller->remove_CursorChanged(m_tokens.cursor);
