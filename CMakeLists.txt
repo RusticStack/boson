@@ -62,6 +62,7 @@ add_library(boson_core STATIC
     src/ipc/sync_bridge.cpp
     src/ipc/sync_boot.cpp
     src/app/lifecycle.cpp
+    src/core/window_manager.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
     src/shell/app_id.cpp
@@ -194,6 +195,12 @@ add_executable(boson_browser WIN32
     examples/browser/main.cpp
 )
 target_link_libraries(boson_browser PRIVATE boson_core)
+
+# Multi-window demo (app::WindowManager): pop-out dashboard, modal settings, emit by label. --smoke runs it unattended.
+add_executable(boson_windows_demo WIN32
+    examples/windows/main.cpp
+)
+target_link_libraries(boson_windows_demo PRIVATE boson_core)
 
 add_executable(boson_bench_app WIN32
     examples/bench_app/main.cpp
@@ -346,6 +353,35 @@ add_executable(boson_menu_tests
 target_link_libraries(boson_menu_tests PRIVATE boson_core)
 add_test(NAME boson_menu_tests COMMAND boson_menu_tests)
 set_tests_properties(boson_menu_tests PROPERTIES TIMEOUT 180)
+# Window manager: windows by label, owned/modal windows, close veto, state per label, Window controller and
+# emit_to(label). Opens small SW_SHOWNOACTIVATE windows; the WebView2 part skips without a runtime.
+add_executable(boson_window_tests
+    tests/test_windows.cpp
+)
+target_link_libraries(boson_window_tests PRIVATE boson_core)
+add_test(NAME boson_window_tests COMMAND boson_window_tests)
+set_tests_properties(boson_window_tests PROPERTIES LABELS integration TIMEOUT 240)
+if(BOSON_BUN_EXECUTABLE)
+    # windows.ts + the Tauri / Electron / Wails window shims, run in a real window against the Window controller.
+    set(BOSON_WINDOWS_SELFTEST_JS "${CMAKE_BINARY_DIR}/windows_selftest.js")
+    add_custom_command(
+        OUTPUT "${BOSON_WINDOWS_SELFTEST_JS}"
+        COMMAND "${BOSON_BUN_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/tests/js/windows_selftest.ts"
+                --format=iife "--outfile=${BOSON_WINDOWS_SELFTEST_JS}"
+        DEPENDS
+            tests/js/windows_selftest.ts
+            frontend/src/boson.ts
+            frontend/src/windows.ts
+            frontend/src/generated/boson-method-params.ts
+            frontend/src/compat/electron.ts
+            frontend/src/compat/tauri.ts
+            frontend/src/compat/wails.ts
+        COMMENT "Bundling the window-manager shim self-test"
+        VERBATIM)
+    add_custom_target(boson_windows_selftest_js DEPENDS "${BOSON_WINDOWS_SELFTEST_JS}")
+    add_dependencies(boson_window_tests boson_windows_selftest_js)
+    target_compile_definitions(boson_window_tests PRIVATE BOSON_WINDOWS_SELFTEST_JS="${BOSON_WINDOWS_SELFTEST_JS}")
+endif()
 # Shipping: versions, crypto, manifests, logger, loopback downloads, update helper, crash dumps.
 add_executable(boson_shipping_tests
     tests/test_shipping.cpp

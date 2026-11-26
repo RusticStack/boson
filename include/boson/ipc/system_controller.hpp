@@ -5,6 +5,7 @@
 #include <boson/core/window.hpp>
 #include <boson/exec/ui_marshal.hpp>
 #include <boson/ipc/export.hpp>
+#include <boson/ipc/request_context.hpp>
 #include <boson/native/dialog.hpp>
 #include <boson/native/notification.hpp>
 
@@ -110,66 +111,83 @@ struct BackdropStatusResponse {
     return native::NotificationLevel::Info;
 }
 
+/// @brief The window and WebView a SystemController call acts on.
+struct SenderTarget {
+    core::Window* window = nullptr;
+    core::WebView* webview = nullptr;
+};
+
+/// @brief JS "Boson.*": window and page control for the calling window.
+///
+/// Fixed form: bound to one Window + WebView. Resolver form (multi-window apps): every call is routed to the
+/// window of the WebView that sent it (ipc::current_sender_id()), e.g. with app::sender_resolver(manager).
 class SystemController {
 public:
     BOSON_CONTROLLER("Boson");
+
+    /// Runs on the UI thread with the sender's WebView id; returns nulls when that WebView is gone.
+    using TargetResolver = std::function<SenderTarget(std::uint64_t sender_webview_id)>;
 
     SystemController(
         core::Window& window,
         core::WebView& webview,
         exec::UiMarshal& marshal)
-        : m_window(window)
-        , m_webview(webview)
+        : m_window(&window)
+        , m_webview(&webview)
         , m_marshal(marshal)
         , m_notifier(window.hwnd()) {}
 
+    SystemController(exec::UiMarshal& marshal, TargetResolver resolver)
+        : m_marshal(marshal)
+        , m_resolver(std::move(resolver)) {}
+
     void start_drag() const {
-        m_marshal.post_task([this]() {
-            m_window.start_drag();
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.start_drag();
         });
     }
 
     void minimize() const {
-        m_marshal.post_task([this]() {
-            m_window.minimize();
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.minimize();
         });
     }
 
     [[nodiscard]] BoolResponse maximize_or_restore() const {
-        return m_marshal.invoke_sync([this]() {
-            m_window.maximize_or_restore();
-            return BoolResponse{.value = m_window.is_maximized()};
+        return invoke_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.maximize_or_restore();
+            return BoolResponse{.value = w.is_maximized()};
         });
     }
 
     void close() const {
-        m_marshal.post_task([this]() {
-            m_window.close();
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.close();
         });
     }
 
     [[nodiscard]] BoolResponse is_maximized() const {
-        return m_marshal.invoke_sync([this]() {
-            return BoolResponse{.value = m_window.is_maximized()};
+        return invoke_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            return BoolResponse{.value = w.is_maximized()};
         });
     }
 
     [[nodiscard]] BoolResponse is_minimized() const {
-        return m_marshal.invoke_sync([this]() {
-            return BoolResponse{.value = m_window.is_minimized()};
+        return invoke_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            return BoolResponse{.value = w.is_minimized()};
         });
     }
 
     [[nodiscard]] BoolResponse is_fullscreen() const {
-        return m_marshal.invoke_sync([this]() {
-            return BoolResponse{.value = m_window.is_fullscreen()};
+        return invoke_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            return BoolResponse{.value = w.is_fullscreen()};
         });
     }
 
     /// @brief Restores a minimized or maximized window to its normal size and position (SW_RESTORE).
     void restore() const {
-        m_marshal.post_task([this]() {
-            m_window.show(SW_RESTORE);
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.show(SW_RESTORE);
         });
     }
 
@@ -177,11 +195,11 @@ public:
     /// Runs the handler from set_quit_handler() on the UI thread, e.g. one that calls boson::app::quit(envs);
     /// without one it closes this window (which posts WM_QUIT when WindowConfig::quit_on_destroy is set).
     void quit() const {
-        m_marshal.post_task([this]() {
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
             if (m_on_quit) {
                 m_on_quit();
             } else {
-                m_window.close();
+                w.close();
             }
         });
     }
@@ -192,35 +210,35 @@ public:
     }
 
     void set_title(TitleRequest req) const {
-        m_marshal.post_task([this, title = std::move(req.title)]() {
-            m_window.set_title(core::utf8_to_wide(title));
+        post_ui([this, title = std::move(req.title)]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.set_title(core::utf8_to_wide(title));
         });
     }
 
     void set_always_on_top(ToggleRequest req) const {
-        m_marshal.post_task([this, enabled = req.enabled]() {
-            m_window.set_always_on_top(enabled);
+        post_ui([this, enabled = req.enabled]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.set_always_on_top(enabled);
         });
     }
 
     void set_fullscreen(ToggleRequest req) const {
-        m_marshal.post_task([this, enabled = req.enabled]() {
-            m_window.set_fullscreen(enabled);
+        post_ui([this, enabled = req.enabled]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.set_fullscreen(enabled);
         });
     }
 
     void set_dark_mode(ToggleRequest req) const {
-        m_marshal.post_task([this, enabled = req.enabled]() {
-            m_window.set_dark_mode(enabled);
+        post_ui([this, enabled = req.enabled]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.set_dark_mode(enabled);
         });
     }
 
     [[nodiscard]] BackdropStatusResponse set_backdrop(BackdropRequest req) const {
         const core::BackdropType type = parse_backdrop_type(req.backdrop);
-        return m_marshal.invoke_sync([this, type, name = std::move(req.backdrop)]() {
-            m_window.set_backdrop(type);
-            const bool transparent_wv = m_window.is_transparent_backdrop();
-            m_webview.set_transparent_background(transparent_wv);
+        return invoke_ui([this, type, name = std::move(req.backdrop)]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            w.set_backdrop(type);
+            const bool transparent_wv = w.is_transparent_backdrop();
+            v.set_transparent_background(transparent_wv);
             return BackdropStatusResponse{
                 .backdrop = name,
                 .transparent_webview = transparent_wv,
@@ -230,12 +248,12 @@ public:
 
     void set_opacity(OpacityRequest req) const {
         const float clamped = static_cast<float>(std::clamp(req.opacity, 0.1, 1.0));
-        m_marshal.post_task([this, clamped]() {
-            if (clamped < 0.999f && m_window.backdrop() != core::BackdropType::Translucent) {
-                m_window.set_backdrop(core::BackdropType::Translucent);
-                m_webview.set_transparent_background(false);
+        post_ui([this, clamped]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            if (clamped < 0.999f && w.backdrop() != core::BackdropType::Translucent) {
+                w.set_backdrop(core::BackdropType::Translucent);
+                v.set_transparent_background(false);
             }
-            m_window.set_opacity(clamped);
+            w.set_opacity(clamped);
         });
     }
 
@@ -246,8 +264,8 @@ public:
             .level = parse_notification_level(req.level),
             .silent = req.silent,
         };
-        return m_marshal.invoke_sync([this, opts = std::move(opts)]() mutable {
-            m_notifier.set_owner(m_window.hwnd());
+        return invoke_ui([this, opts = std::move(opts)]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) mutable {
+            m_notifier.set_owner(w.hwnd());
             return BoolResponse{.value = m_notifier.show(opts)};
         });
     }
@@ -259,8 +277,8 @@ public:
             .pick_folder = req.pick_folder,
             .default_name = {},
         };
-        return m_marshal.invoke_sync([this, opts = std::move(opts)]() {
-            const auto res = native::open_file_dialog(m_window.hwnd(), opts);
+        return invoke_ui([this, opts = std::move(opts)]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            const auto res = native::open_file_dialog(w.hwnd(), opts);
             return FileDialogResponse{
                 .cancelled = res.cancelled,
                 .paths = res.paths,
@@ -275,8 +293,8 @@ public:
             .pick_folder = false,
             .default_name = std::move(req.default_name),
         };
-        return m_marshal.invoke_sync([this, opts = std::move(opts)]() {
-            const auto res = native::save_file_dialog(m_window.hwnd(), opts);
+        return invoke_ui([this, opts = std::move(opts)]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
+            const auto res = native::save_file_dialog(w.hwnd(), opts);
             return FileDialogResponse{
                 .cancelled = res.cancelled,
                 .paths = res.paths,
@@ -285,46 +303,46 @@ public:
     }
 
     void go_back() const {
-        m_marshal.post_task([this]() { m_webview.go_back(); });
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { v.go_back(); });
     }
 
     void go_forward() const {
-        m_marshal.post_task([this]() { m_webview.go_forward(); });
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { v.go_forward(); });
     }
 
     void reload() const {
-        m_marshal.post_task([this]() { m_webview.reload(); });
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { v.reload(); });
     }
 
     void open_devtools() const {
-        m_marshal.post_task([this]() { m_webview.open_devtools(); });
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { v.open_devtools(); });
     }
 
     void set_zoom(ZoomRequest req) const {
-        m_marshal.post_task([this, factor = req.factor]() { m_webview.set_zoom_factor(factor); });
+        post_ui([this, factor = req.factor]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { v.set_zoom_factor(factor); });
     }
 
     void set_min_size(SizeRequest req) const {
-        m_marshal.post_task([this, req]() { m_window.set_min_size(req.width, req.height); });
+        post_ui([this, req]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { w.set_min_size(req.width, req.height); });
     }
 
     void center() const {
-        m_marshal.post_task([this]() { m_window.center(); });
+        post_ui([this]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) { w.center(); });
     }
 
     /// @brief Marks a DOM element as the caption maximize button so Windows 11 Snap Layouts appears when
     /// hovering it. The rect is mapped from CSS pixels of this WebView to window client pixels.
     void set_maximize_button_rect(ElementRectRequest req) const {
-        m_marshal.post_task([this, req]() {
+        post_ui([this, req]([[maybe_unused]] core::Window& w, [[maybe_unused]] core::WebView& v) {
             if (!req.visible || req.width <= 0.0 || req.height <= 0.0) {
-                m_window.set_maximize_button_rect(std::nullopt);
+                w.set_maximize_button_rect(std::nullopt);
                 return;
             }
-            const double scale = static_cast<double>(m_window.dpi()) / USER_DEFAULT_SCREEN_DPI *
-                                 m_webview.zoom_factor().value_or(1.0);
-            const RECT origin = m_webview.bounds();
+            const double scale = static_cast<double>(w.dpi()) / USER_DEFAULT_SCREEN_DPI *
+                                 v.zoom_factor().value_or(1.0);
+            const RECT origin = v.bounds();
             const auto px = [scale](double css) { return static_cast<LONG>(css * scale + 0.5); };
-            m_window.set_maximize_button_rect(RECT{
+            w.set_maximize_button_rect(RECT{
                 origin.left + px(req.x),
                 origin.top + px(req.y),
                 origin.left + px(req.x + req.width),
@@ -334,9 +352,40 @@ public:
     }
 
 private:
-    core::Window& m_window;
-    core::WebView& m_webview;
+    [[nodiscard]] SenderTarget target(std::uint64_t sender) const {
+        if (m_resolver) {
+            return m_resolver(sender);
+        }
+        return SenderTarget{.window = m_window, .webview = m_webview};
+    }
+
+    /// Posts fn(window, webview) to the UI thread for the calling window; dropped when it no longer exists.
+    template <typename Fn>
+    void post_ui(Fn&& fn) const {
+        m_marshal.post_task([this, sender = current_sender_id(), fn = std::forward<Fn>(fn)]() mutable {
+            const SenderTarget t = target(sender);
+            if (t.window != nullptr && t.webview != nullptr) {
+                fn(*t.window, *t.webview);
+            }
+        });
+    }
+
+    /// Runs fn(window, webview) on the UI thread and waits for its result (pool thread only).
+    template <typename Fn>
+    auto invoke_ui(Fn&& fn) const {
+        return m_marshal.invoke_sync([this, sender = current_sender_id(), &fn]() mutable {
+            const SenderTarget t = target(sender);
+            if (t.window == nullptr || t.webview == nullptr) {
+                throw std::runtime_error("the calling window no longer exists");
+            }
+            return fn(*t.window, *t.webview);
+        });
+    }
+
+    core::Window* m_window = nullptr;
+    core::WebView* m_webview = nullptr;
     exec::UiMarshal& m_marshal;
+    TargetResolver m_resolver;
     native::Notifier m_notifier;
     std::function<void()> m_on_quit;
 };

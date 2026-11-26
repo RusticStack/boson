@@ -8,16 +8,16 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 
 | Area | Capability | Electron | Tauri v2 | Boson (Current) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Windowing** | Multi-window creation & lifecycle | `BrowserWindow` + `getAllWindows()` | `WebviewWindow` / `WebviewWindowBuilder` | Multiple `Window`s (`quit_on_destroy`, `owner`), vetoable `CloseRequested`, full window event set |
+| **Windowing** | Multi-window creation & lifecycle | `BrowserWindow` + `getAllWindows()` | `WebviewWindow` / `WebviewWindowBuilder` | `app::WindowManager` by label (one shared `Environment`), `Window.*` controller, async close confirm, hide-to-tray, quit on last window ([WINDOWS.md](WINDOWS.md)) |
 | | Multiple WebViews per window | `WebContentsView` | `Window::add_child` (unstable) | `WebViewHost` (bounds, visibility, z-order, shared `Environment`), windowed or DirectComposition hosting |
 | | Tab sleeping / suspension | `webContents.setBackgroundThrottling` | — | `try_suspend` / `resume`, `MemoryUsageTarget`, `SleepPolicy` |
-| | Modal / child / owned windows | `parent` + `modal: true` | `WebviewWindowBuilder::parent()` | Missing |
+| | Modal / child / owned windows | `parent` + `modal: true` | `WebviewWindowBuilder::parent()` | `ManagedWindowConfig::parent` / `modal` (owner disabled, centered on the owner), `skip_taskbar` |
 | | Window state persistence | Community plugin | `tauri-plugin-window-state` | `desktop::WindowStateKeeper` (position, size, maximized, fullscreen, monitor; clamped when a monitor is gone) |
 | | Headless / custom titlebar | `titleBarStyle: 'hidden'` + `titleBarOverlay` | `decorations: false` + drag region | `headless_titlebar` + CSS `app-region: drag` + Snap Layouts on a custom maximize button |
 | | Fluent 2 backdrops (Mica / Acrylic) | Third-party / limited | `window-vibrancy` / core effects | Built-in (`Mica`, `MicaAlt`, `Acrylic`, `Transparent`, `Translucent`) |
 | | Display / Monitor DPI & bounds | `screen` module | `availableMonitors()` / `scaleFactor` | `desktop` screen API (`displays`, `display_nearest_*`, work area, scale, refresh rate) + `screen:changed` |
 | **IPC & Data** | Request / Response RPC | `ipcRenderer.invoke` / `ipcMain.handle` | `invoke()` / `#[tauri::command]` | `Router` + `TaskRunner` (`stdexec`) + `boson_tsgen` |
-| | Backend → Frontend events | `webContents.send` / `ipcRenderer.on` | `app.emit` / `emit_to` / `listen()` | `Bridge::emit` / `emit_to` (any thread) + typed `boson.on` / `once`, origin allow-list |
+| | Backend → Frontend events | `webContents.send` / `ipcRenderer.on` | `app.emit` / `emit_to` / `listen()` | `Bridge::emit` / `emit_to(webview_id or window label)` (any thread) + typed `boson.on` / `once`, origin allow-list |
 | | Synchronous IPC | `ipcRenderer.sendSync` / `event.returnValue` | — (async only) | `ipc::SyncBridge` (IDispatch host object, `boson.invokeSync`, ~0.1 ms round trip, handler on the UI thread, allow-list + CapabilityPolicy) + `ipc::BootValues` (frozen `__BOSON_BOOT__`, no IPC) — [SYNC_IPC.md](SYNC_IPC.md) |
 | | Navigation & content events | `webContents` events | `on_navigation`, `on_page_load` | Full set: navigation (cancellable), title, history, favicon, new window (deferral), fullscreen, audio, crash, permissions, downloads |
 | | Binary payloads & streaming | `MessageChannelMain` / `Buffer` | `ipc::Response` + `ipc::Channel` | `transfer::BinaryTransport` (zero-copy shared buffers, ~2.6 GB/s measured; base64 fallback) + `StreamServer` (HTTP Range, seeking) |
@@ -55,6 +55,7 @@ This document compares **Boson** against **Electron** and **Tauri v2** (based on
 
 Done (see the module docs):
 - Events, multi-WebView hosting, lifecycle: [USAGE.md](USAGE.md)
+- Window manager by label (owned / modal windows, `emit_to(label)`, close veto, state per label): [WINDOWS.md](WINDOWS.md)
 - Menus, tray, accelerators: [MENU.md](MENU.md)
 - Clipboard, shell, global shortcuts, deep links, screen, window state: [DESKTOP.md](DESKTOP.md)
 - File drop, zero-copy binary IPC, Range streaming: [TRANSFER.md](TRANSFER.md)
@@ -66,8 +67,7 @@ Done (see the module docs):
 - Electron/Tauri/Wails shims and migration tables: [MIGRATION.md](MIGRATION.md), [PORTING.md](PORTING.md); measurements: [BENCHMARKS.md](BENCHMARKS.md)
 
 Remaining:
-1. **Window manager by label**: parent/owned modal windows with `emit_to(label, ...)` routing.
-2. **MSI verification**: build and install the CPack WiX package on a machine with WiX installed.
-3. **Comparative benchmarks**: run `boson_bench` against equivalent Electron, Tauri and Wails apps.
-4. **Real-input verification**: physical drag-and-drop from Explorer, Snap Layouts hover, global shortcut key presses, toast clicks, and screen readers (all tested only with synthesized messages).
-5. **Cross-platform backends**: intentionally out of scope for now (Windows only).
+1. **MSI verification**: build and install the CPack WiX package on a machine with WiX installed.
+2. **Comparative benchmarks**: run `boson_bench` against equivalent Electron, Tauri and Wails apps.
+3. **Real-input verification**: physical drag-and-drop from Explorer, Snap Layouts hover, global shortcut key presses, toast clicks, and screen readers (all tested only with synthesized messages).
+4. **Cross-platform backends**: intentionally out of scope for now (Windows only).

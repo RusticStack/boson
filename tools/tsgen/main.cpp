@@ -22,6 +22,7 @@
 #include <boson/ipc/controllers/transfer_controller.hpp>
 #include <boson/ipc/controllers/updater_controller.hpp>
 #include <boson/ipc/controllers/webview_controller.hpp>
+#include <boson/ipc/controllers/window_controller.hpp>
 #include <boson/ipc/controllers/platform_events.hpp>
 #include <boson/ipc/sync_bridge.hpp>
 #include <boson/ipc/system_controller.hpp>
@@ -60,7 +61,8 @@ bool write_file(const std::filesystem::path& out_path, const std::string& conten
 
 using DemoEventMaps = boson::ipc::TsGenerator::EventMaps<boson::demo::DemoEvents, boson::ipc::DesktopEvents, boson::ipc::MenuEvents,
                                                       boson::ipc::ShellIntegrationEvents, boson::ipc::PlatformEvents,
-                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>, boson::ipc::DragEvents>;
+                                                      boson::ipc::StoreEvents<boson::demo::DemoSettings>, boson::ipc::DragEvents,
+                                                      boson::ipc::WindowManagerEvents>;
 
 /// The controllers listed once; both outputs come from the same list.
 template <boson::ipc::BosonController... Controllers>
@@ -91,7 +93,8 @@ using AllControllers = Outputs<
     boson::ipc::TitlebarController,
     boson::ipc::TransferController,
     boson::ipc::UpdaterController,
-    boson::ipc::WebViewController>;
+    boson::ipc::WebViewController,
+    boson::ipc::WindowController>;
 
 // Usage: boson_tsgen [bindings.d.ts [method-params.ts]]
 //   bindings.d.ts     BosonApi / BosonEvents declarations (stdout when omitted)
