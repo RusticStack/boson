@@ -52,6 +52,13 @@ add_library(boson_core STATIC
     src/app/lifecycle.cpp
     src/native/notification.cpp
     src/native/dialog.cpp
+    src/desktop/hidden_window.cpp
+    src/desktop/clipboard.cpp
+    src/desktop/shell.cpp
+    src/desktop/shortcuts.cpp
+    src/desktop/deep_link.cpp
+    src/desktop/screen.cpp
+    src/desktop/window_state.cpp
 )
 
 # Windows 10+ compatibility + Per-Monitor V2 manifest for every executable linking boson_core.
@@ -97,6 +104,8 @@ target_link_libraries(boson_core
         user32
         gdi32
         shell32
+        shcore
+        windowscodecs
 )
 
 add_executable(boson_demo WIN32
@@ -128,3 +137,11 @@ add_executable(boson_integration_tests
 target_link_libraries(boson_integration_tests PRIVATE boson_core)
 add_test(NAME boson_integration_tests COMMAND boson_integration_tests)
 set_tests_properties(boson_integration_tests PROPERTIES LABELS integration TIMEOUT 180)
+
+# Desktop basics: clipboard, shell, global shortcuts, deep links, screen, window state.
+add_executable(boson_desktop_tests
+    tests/test_desktop.cpp
+)
+target_link_libraries(boson_desktop_tests PRIVATE boson_core)
+add_test(NAME boson_desktop_tests COMMAND boson_desktop_tests)
+set_tests_properties(boson_desktop_tests PROPERTIES TIMEOUT 180)

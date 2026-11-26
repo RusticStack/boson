@@ -129,10 +129,14 @@ int WINAPI wWinMain(
     window_cfg.dark_mode = true;
 
     boson::core::Window window(std::move(window_cfg));
-    if (!window.create(instance, show_cmd)) {
+    if (!window.create(instance, SW_HIDE)) {
         return 1;
     }
     window_ptr = &window;
+
+    // Reopen where the user left the window (saved to %LOCALAPPDATA%\Boson.Demo on move/resize/close).
+    boson::desktop::WindowStateKeeper window_state(window, {.app_name = L"Boson.Demo"});
+    window_state.restore(show_cmd);
 
     boson::exec::Scheduler scheduler;
     boson::exec::UiMarshal marshal([&window]() {
